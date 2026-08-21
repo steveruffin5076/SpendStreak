@@ -1,5 +1,8 @@
 package com.spendstreak.app.ui.screens
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -21,6 +24,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.spendstreak.app.ads.BannerAdView
 import com.spendstreak.app.ui.components.CurrencyPickerDialog
@@ -328,6 +332,30 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
             )
+            val context = LocalContext.current
+            OutlinedButton(
+                onClick = {
+                    val uri = Uri.parse("market://details?id=${context.packageName}")
+                    try {
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW, uri).apply { setPackage("com.android.vending") }
+                        )
+                    } catch (_: ActivityNotFoundException) {
+                        context.startActivity(
+                            Intent(
+                                Intent.ACTION_VIEW,
+                                Uri.parse("https://play.google.com/store/apps/details?id=${context.packageName}")
+                            )
+                        )
+                    }
+                },
+                shape = MaterialTheme.shapes.small,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp)
+            ) {
+                Text("RATE SPENDSTREAK")
+            }
         }
     }
     BannerAdView(modifier = Modifier.fillMaxWidth())

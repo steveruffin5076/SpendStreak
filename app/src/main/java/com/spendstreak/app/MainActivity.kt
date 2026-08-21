@@ -66,6 +66,8 @@ import com.spendstreak.app.ui.theme.saveSelectedTheme
 import com.spendstreak.app.ui.theme.unlockedThemesForLevel
 import com.spendstreak.app.util.LocalCurrencyCode
 import com.spendstreak.app.util.loadCurrencyCode
+import com.spendstreak.app.util.loadHasSeenWelcome
+import com.spendstreak.app.util.markWelcomeSeen
 import com.spendstreak.app.util.saveCurrencyCode
 import com.spendstreak.app.viewmodel.SpendStreakViewModel
 import kotlinx.coroutines.launch
@@ -123,6 +125,7 @@ fun SpendStreakApp() {
     )
 
     var showDataResetNotice by remember { mutableStateOf(SpendStreakDatabase.dataWasResetOnLaunch) }
+    var showWelcomeDialog by remember { mutableStateOf(!loadHasSeenWelcome(appContext)) }
     var selectedTheme by remember { mutableStateOf(loadSelectedTheme(appContext)) }
     var selectedCurrencyCode by remember { mutableStateOf(loadCurrencyCode(appContext)) }
     var remindersEnabled by remember { mutableStateOf(loadRemindersEnabled(appContext)) }
@@ -201,6 +204,30 @@ fun SpendStreakApp() {
 
     CompositionLocalProvider(LocalCurrencyCode provides selectedCurrencyCode) {
     SpendStreakTheme(themeOption = selectedTheme) {
+    if (showWelcomeDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showWelcomeDialog = false
+                markWelcomeSeen(appContext)
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showWelcomeDialog = false
+                    markWelcomeSeen(appContext)
+                }) { Text("GOT IT") }
+            },
+            title = { Text("Welcome to SpendStreak") },
+            text = {
+                Text(
+                    "Log your expenses and income to build a daily streak and earn XP — " +
+                        "level up by showing up, not by spending less. Check the " +
+                        "Achievements tab to see what you've unlocked, and set a budget " +
+                        "or recurring reminders any time from Settings."
+                )
+            }
+        )
+    }
+
     if (showDataResetNotice) {
         AlertDialog(
             onDismissRequest = { showDataResetNotice = false },
