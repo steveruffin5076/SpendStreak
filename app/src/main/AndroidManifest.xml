@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Required at runtime on API 33+ only; harmless to declare unconditionally since
+         minSdk 26 devices simply ignore it (no runtime prompt needed pre-33). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- First-ever network use in this app — needed for AdMob to request ads and for the
+         UMP SDK to fetch consent requirements. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.SpendStreak">
+
+        <!-- Real AdMob App ID (from the AdMob console). The banner ad unit itself
+             (see ads/BannerAdView.kt) still uses Google's TEST ad unit ID until a real
+             Banner ad unit is created there — mixing a real App ID with a test ad unit ID
+             during development is Google's own documented approach, not a workaround. -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-6165653121014687~6403490303" />
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.SpendStreak"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Grants the share-sheet target app (e.g. Files, Gmail, Drive) temporary read
+             access to the exported CSV without making app-private storage world-readable.
+             minSdk 26 rules out MediaStore.Downloads (added in API 29) as a simpler
+             alternative, so this is the one code path that works across the whole range. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <!-- Handles the LOG IT/SKIP action buttons on a recurring-reminder notification —
+             see reminder/ReminderActionReceiver.kt. Never launched by anything outside the
+             app (exported=false); WorkManager's own internal receivers/services are added
+             automatically by its manifest-merge, nothing to declare for those here. -->
+        <receiver
+            android:name=".reminder.ReminderActionReceiver"
+            android:exported="false" />
+    </application>
+
+</manifest>

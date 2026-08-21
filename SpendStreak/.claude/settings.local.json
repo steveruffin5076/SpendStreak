@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(adb devices *)",
+      "Bash(adb --version)",
+      "PowerShell($adb = \"C:\\\\Users\\\\K3n5h\\\\AppData\\\\Local\\\\Android\\\\Sdk\\\\platform-tools\\\\adb.exe\"; if \\(Test-Path $adb\\) { & $adb devices } else { \"adb not found at $adb\" })",
+      "Bash(./gradlew assembleDebug)",
+      "Bash(export JAVA_HOME=\"C:/Program Files/Android/Android Studio/jbr\")"
+    ]
+  }
+}
