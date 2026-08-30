@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import com.spendstreak.app.data.Account
 import com.spendstreak.app.data.Category
 import com.spendstreak.app.data.CategoryKind
+import com.spendstreak.app.ui.components.AccountPickerSheet
 import com.spendstreak.app.ui.components.CategoryPickerSheet
 import com.spendstreak.app.ui.components.RetroPanel
 import com.spendstreak.app.util.currentCurrencySymbol
@@ -349,20 +350,48 @@ private fun AccountSection(
     selectedAccountId: Long?,
     onAccountSelected: (Long) -> Unit
 ) {
+    var showPicker by remember { mutableStateOf(false) }
+    val selected = accounts.find { it.id == selectedAccountId }
+
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(text = "ACCOUNT", style = MaterialTheme.typography.labelLarge)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            accounts.forEach { account ->
-                FilterChip(
-                    selected = selectedAccountId == account.id,
-                    onClick = { onAccountSelected(account.id) },
-                    label = {
-                        Text(text = account.name.uppercase(), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    },
-                    modifier = Modifier.widthIn(max = 160.dp)
+        // Same compact-trigger-opens-a-sheet pattern as the CATEGORY section above,
+        // for the same reason — with a dozen+ real accounts, long names like
+        // "PBB JOINT NAME..." need more room than an inline chip/tab row gives them.
+        RetroPanel(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { showPicker = true }
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = (selected?.name ?: "SELECT").uppercase(),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                Text(
+                    text = "CHANGE",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
         }
+    }
+
+    if (showPicker) {
+        AccountPickerSheet(
+            title = "SELECT ACCOUNT",
+            accounts = accounts,
+            selectedAccountId = selectedAccountId,
+            onSelect = onAccountSelected,
+            onDismiss = { showPicker = false }
+        )
     }
 }
 

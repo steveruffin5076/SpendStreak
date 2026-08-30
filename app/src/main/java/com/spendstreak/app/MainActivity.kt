@@ -283,7 +283,11 @@ fun SpendStreakApp() {
                 budgetProgress = budgetProgress,
                 balance = balance,
                 pendingLevelUp = pendingLevelUp,
-                onLevelUpAcknowledged = { viewModel.acknowledgeLevelUp() }
+                onLevelUpAcknowledged = { viewModel.acknowledgeLevelUp() },
+                onBalanceClick = {
+                    currentScreen = AppScreen.Settings
+                    settingsSubScreen = SettingsSubScreen.Accounts
+                }
             )
             AppScreen.AddExpense -> AddTransactionScreen(
                 modifier = contentModifier,

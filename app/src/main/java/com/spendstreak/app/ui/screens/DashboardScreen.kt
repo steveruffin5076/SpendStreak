@@ -7,6 +7,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,6 +44,7 @@ fun DashboardScreen(
     balance: Double,
     pendingLevelUp: Int?,
     onLevelUpAcknowledged: () -> Unit,
+    onBalanceClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     LaunchedEffect(pendingLevelUp) {
@@ -82,7 +84,7 @@ fun DashboardScreen(
                 BudgetPanel(budgetProgress)
             }
 
-            BalancePanel(balance)
+            BalancePanel(balance, onClick = onBalanceClick)
 
             ThisWeekPanel(
                 expenseCount = weeklySummary.count,
@@ -211,14 +213,22 @@ private fun BudgetPanel(budgetProgress: BudgetProgress) {
 }
 
 @Composable
-private fun BalancePanel(balance: Double) {
+private fun BalancePanel(balance: Double, onClick: () -> Unit) {
     val balanceColor = if (balance >= 0) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.error
-    RetroPanel(modifier = Modifier.fillMaxWidth()) {
+    RetroPanel(modifier = Modifier
+        .fillMaxWidth()
+        .clickable(onClick = onClick)
+    ) {
         Text(text = "BALANCE", style = MaterialTheme.typography.labelLarge)
         Text(
             text = formatCurrency(balance),
             style = MaterialTheme.typography.titleMedium,
             color = balanceColor
+        )
+        Text(
+            text = "Tap to view accounts",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
         )
     }
 }
