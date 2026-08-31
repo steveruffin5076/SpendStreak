@@ -13,7 +13,7 @@ import com.spendstreak.app.util.SPENDSTREAK_PREFS_NAME
         Expense::class, UserProgress::class, Account::class, Income::class, Budget::class,
         Transfer::class, Category::class, RecurringTransaction::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class SpendStreakDatabase : RoomDatabase() {
@@ -160,8 +160,19 @@ abstract class SpendStreakDatabase : RoomDatabase() {
             }
         }
 
+        // 7->8: adds Account.openingBalance (starting balance, or credit limit for a
+        // Credit Card account — see Account.kt) and Expense/Income.excludedFromBudget
+        // (per-transaction budget-tracking opt-out). Plain ADD COLUMNs, nothing removed.
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE accounts ADD COLUMN openingBalance REAL NOT NULL DEFAULT 0.0")
+                db.execSQL("ALTER TABLE expenses ADD COLUMN excludedFromBudget INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE income ADD COLUMN excludedFromBudget INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         private val MIGRATIONS: Array<Migration> = arrayOf(
-            MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7
+            MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8
         )
 
         // Set at most once per process: true only when this launch's onCreate fired (a

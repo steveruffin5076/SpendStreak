@@ -56,6 +56,7 @@ import com.spendstreak.app.ui.screens.AchievementsScreen
 import com.spendstreak.app.ui.screens.AddTransactionScreen
 import com.spendstreak.app.ui.screens.BudgetScreen
 import com.spendstreak.app.ui.screens.DashboardScreen
+import com.spendstreak.app.ui.screens.EditOpeningBalancePanel
 import com.spendstreak.app.ui.screens.HistoryScreen
 import com.spendstreak.app.ui.screens.ReportsScreen
 import com.spendstreak.app.ui.screens.RecurringTransactionsScreen
@@ -91,12 +92,14 @@ private enum class SettingsSubScreen { Accounts, Budget, Reports, Recurring }
 fun SpendStreakApp() {
     var currentScreen by rememberSaveable { mutableStateOf(AppScreen.Dashboard) }
     var settingsSubScreen by rememberSaveable { mutableStateOf<SettingsSubScreen?>(null) }
+    var viewingAccountId by rememberSaveable { mutableStateOf<Long?>(null) }
 
     // No back-stack (this app uses a hand-rolled screen switch, not Navigation Compose),
     // so without this, system back from a Settings sub-screen falls through and exits
-    // the app instead of returning to the Settings root.
-    BackHandler(enabled = settingsSubScreen != null) {
-        settingsSubScreen = null
+    // the app instead of returning to the Settings root. viewingAccountId is checked
+    // first since it's opened from on top of the Accounts sub-screen.
+    BackHandler(enabled = viewingAccountId != null || settingsSubScreen != null) {
+        if (viewingAccountId != null) viewingAccountId = null else settingsSubScreen = null
     }
 
     val appContext = LocalContext.current.applicationContext
@@ -266,6 +269,7 @@ fun SpendStreakApp() {
                         onClick = {
                             currentScreen = screen
                             settingsSubScreen = null
+                            viewingAccountId = null
                         },
                         icon = { Icon(imageVector = screen.icon, contentDescription = screen.label) },
                         label = { Text(screen.label) }
@@ -287,24 +291,26 @@ fun SpendStreakApp() {
                 onBalanceClick = {
                     currentScreen = AppScreen.Settings
                     settingsSubScreen = SettingsSubScreen.Accounts
+                    viewingAccountId = null
                 }
             )
             AppScreen.AddExpense -> AddTransactionScreen(
                 modifier = contentModifier,
                 accounts = accounts,
                 categories = categories,
-                onSaveExpense = { amount, categoryId, accountId, note ->
-                    viewModel.addExpense(amount, categoryId, accountId, note)
+                onSaveExpense = { amount, categoryId, accountId, note, timestampMillis, excludedFromBudget ->
+                    viewModel.addExpense(amount, categoryId, accountId, note, timestampMillis, excludedFromBudget)
                 },
-                onSaveIncome = { amount, categoryId, accountId, note ->
-                    viewModel.addIncome(amount, categoryId, accountId, note)
+                onSaveIncome = { amount, categoryId, accountId, note, timestampMillis, excludedFromBudget ->
+                    viewModel.addIncome(amount, categoryId, accountId, note, timestampMillis, excludedFromBudget)
                 },
-                onSaveTransfer = { amount, fromAccountId, toAccountId, note ->
+                onSaveTransfer = { amount, fromAccountId, toAccountId, note, timestampMillis ->
                     viewModel.addTransfer(
                         fromAccountId = fromAccountId,
                         toAccountId = toAccountId,
                         amount = amount,
-                        note = note
+                        note = note,
+                        timestampMillis = timestampMillis
                     )
                 },
                 onAddCategory = { name, kind, emoji -> viewModel.addCategory(name, kind, emoji) },
@@ -323,7 +329,12 @@ fun SpendStreakApp() {
                 onUpdateIncome = { viewModel.updateIncome(it) },
                 onDeleteIncome = { id, onResult -> viewModel.deleteIncome(id, onResult) },
                 onUpdateTransfer = { viewModel.updateTransfer(it) },
-                onDeleteTransfer = { id, onResult -> viewModel.deleteTransfer(id, onResult) }
+                onDeleteTransfer = { id, onResult -> viewModel.deleteTransfer(id, onResult) },
+                onAddCategory = { name, kind, emoji -> viewModel.addCategory(name, kind, emoji) },
+                onRenameCategory = { category, name, emoji ->
+                    viewModel.updateCategory(category.copy(name = name, emoji = emoji))
+                },
+                onDeleteCategory = { categoryId, onResult -> viewModel.deleteCategory(categoryId, onResult) }
             )
             AppScreen.Achievements -> AchievementsScreen(
                 modifier = contentModifier,
@@ -331,14 +342,52 @@ fun SpendStreakApp() {
                 achievements = achievements
             )
             AppScreen.Settings -> when (settingsSubScreen) {
-                SettingsSubScreen.Accounts -> AccountsScreen(
-                    modifier = contentModifier,
-                    accounts = accounts,
-                    accountBalances = accountBalances,
-                    onAddAccount = { name, type -> viewModel.addAccount(name, type) },
-                    onDeleteAccount = { accountId, onResult -> viewModel.deleteAccount(accountId, onResult) },
-                    onBack = { settingsSubScreen = null }
-                )
+                SettingsSubScreen.Accounts -> {
+                    val viewedAccountId = viewingAccountId
+                    val viewedAccount = accounts.find { it.id == viewedAccountId }
+                    if (viewedAccountId != null && viewedAccount != null) {
+                        HistoryScreen(
+                            modifier = contentModifier,
+                            entries = historyEntries,
+                            accounts = accounts,
+                            categories = categories,
+                            onUpdateExpense = { viewModel.updateExpense(it) },
+                            onDeleteExpense = { id, onResult -> viewModel.deleteExpense(id, onResult) },
+                            onUpdateIncome = { viewModel.updateIncome(it) },
+                            onDeleteIncome = { id, onResult -> viewModel.deleteIncome(id, onResult) },
+                            onUpdateTransfer = { viewModel.updateTransfer(it) },
+                            onDeleteTransfer = { id, onResult -> viewModel.deleteTransfer(id, onResult) },
+                            onAddCategory = { name, kind, emoji -> viewModel.addCategory(name, kind, emoji) },
+                            onRenameCategory = { category, name, emoji ->
+                                viewModel.updateCategory(category.copy(name = name, emoji = emoji))
+                            },
+                            onDeleteCategory = { categoryId, onResult -> viewModel.deleteCategory(categoryId, onResult) },
+                            filterAccountId = viewedAccountId,
+                            title = viewedAccount.name.uppercase(),
+                            onBack = { viewingAccountId = null },
+                            headerContent = {
+                                EditOpeningBalancePanel(
+                                    account = viewedAccount,
+                                    onSave = { newBalance ->
+                                        viewModel.updateAccount(viewedAccount.copy(openingBalance = newBalance))
+                                    }
+                                )
+                            }
+                        )
+                    } else {
+                        AccountsScreen(
+                            modifier = contentModifier,
+                            accounts = accounts,
+                            accountBalances = accountBalances,
+                            onAddAccount = { name, type, openingBalance ->
+                                viewModel.addAccount(name, type, openingBalance)
+                            },
+                            onDeleteAccount = { accountId, onResult -> viewModel.deleteAccount(accountId, onResult) },
+                            onViewAccount = { accountId -> viewingAccountId = accountId },
+                            onBack = { settingsSubScreen = null }
+                        )
+                    }
+                }
                 SettingsSubScreen.Budget -> BudgetScreen(
                     modifier = contentModifier,
                     budget = budget,

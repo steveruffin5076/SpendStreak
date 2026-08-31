@@ -10,7 +10,8 @@ data class Income(
     val categoryId: Long,
     val note: String,
     val accountId: Long,
-    val timestampMillis: Long
+    val timestampMillis: Long,
+    val excludedFromBudget: Boolean = false
 ) {
     companion object {
         const val TABLE_NAME = "income"

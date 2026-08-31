@@ -122,24 +122,32 @@ class SpendStreakViewModel(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeeklySummary(0, 0.0))
 
-    val balance: StateFlow<Double> = combine(expenses, income) { exp, inc ->
-        inc.sumOf { it.amount } - exp.sumOf { it.amount }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0.0)
-
     // Net balance per account, computed in one pass — the single source of truth for
-    // "balance", so screens never recompute this formula themselves. Transfers move
-    // money between accounts (source down, destination up) without touching the
-    // app-wide `balance` above, since they're neither income nor expense.
-    val accountBalances: StateFlow<Map<Long, Double>> = combine(expenses, income, transfers) { exp, inc, trans ->
-        val balances = mutableMapOf<Long, Double>()
-        inc.forEach { balances[it.accountId] = (balances[it.accountId] ?: 0.0) + it.amount }
-        exp.forEach { balances[it.accountId] = (balances[it.accountId] ?: 0.0) - it.amount }
-        trans.forEach {
-            balances[it.fromAccountId] = (balances[it.fromAccountId] ?: 0.0) - it.amount
-            balances[it.toAccountId] = (balances[it.toAccountId] ?: 0.0) + it.amount
-        }
-        balances
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+    // "balance", so screens never recompute this formula themselves. Starts from each
+    // account's opening balance (zero for Credit Card accounts, where the same column
+    // instead means credit limit — a spending cap, not money contributing to a balance).
+    // Transfers move money between accounts (source down, destination up).
+    val accountBalances: StateFlow<Map<Long, Double>> =
+        combine(expenses, income, transfers, accounts) { exp, inc, trans, accts ->
+            val balances = mutableMapOf<Long, Double>()
+            accts.forEach { account ->
+                balances[account.id] = if (account.type == Account.TYPE_CREDIT_CARD) 0.0 else account.openingBalance
+            }
+            inc.forEach { balances[it.accountId] = (balances[it.accountId] ?: 0.0) + it.amount }
+            exp.forEach { balances[it.accountId] = (balances[it.accountId] ?: 0.0) - it.amount }
+            trans.forEach {
+                balances[it.fromAccountId] = (balances[it.fromAccountId] ?: 0.0) - it.amount
+                balances[it.toAccountId] = (balances[it.toAccountId] ?: 0.0) + it.amount
+            }
+            balances
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    // The Dashboard total — sum of every account's own balance above, so a Credit
+    // Card's actual spending/debt still counts (same as any other account activity)
+    // even though its credit-limit figure never contributes anywhere.
+    val balance: StateFlow<Double> = accountBalances
+        .map { it.values.sum() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0.0)
 
     val historyEntries: StateFlow<List<HistoryEntry>> =
         combine(expenses, income, transfers, accounts, categories) { exp, inc, trans, accts, cats ->
@@ -188,7 +196,9 @@ class SpendStreakViewModel(
                 ?: System.currentTimeMillis()
             start to end
         }
-        val spent = exp.filter { it.timestampMillis in periodStartMillis until periodEndMillis }.sumOf { it.amount }
+        val spent = exp
+            .filter { it.timestampMillis in periodStartMillis until periodEndMillis && !it.excludedFromBudget }
+            .sumOf { it.amount }
         BudgetProgress(limit = activeBudget.amountLimit, spent = spent, isOverBudget = spent > activeBudget.amountLimit)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
@@ -221,8 +231,17 @@ class SpendStreakViewModel(
         _pendingLevelUp.value = null
     }
 
-    fun addExpense(amount: Double, categoryId: Long, accountId: Long, note: String) {
-        viewModelScope.launch { expenseRepository.addExpense(amount, categoryId, accountId, note) }
+    fun addExpense(
+        amount: Double,
+        categoryId: Long,
+        accountId: Long,
+        note: String,
+        timestampMillis: Long,
+        excludedFromBudget: Boolean
+    ) {
+        viewModelScope.launch {
+            expenseRepository.addExpense(amount, categoryId, accountId, note, timestampMillis, excludedFromBudget)
+        }
     }
 
     fun updateExpense(expense: Expense) {
@@ -236,8 +255,17 @@ class SpendStreakViewModel(
         }
     }
 
-    fun addIncome(amount: Double, categoryId: Long, accountId: Long, note: String) {
-        viewModelScope.launch { incomeRepository.addIncome(amount, categoryId, accountId, note) }
+    fun addIncome(
+        amount: Double,
+        categoryId: Long,
+        accountId: Long,
+        note: String,
+        timestampMillis: Long,
+        excludedFromBudget: Boolean
+    ) {
+        viewModelScope.launch {
+            incomeRepository.addIncome(amount, categoryId, accountId, note, timestampMillis, excludedFromBudget)
+        }
     }
 
     fun updateIncome(income: Income) {
@@ -266,13 +294,14 @@ class SpendStreakViewModel(
     // Named arguments at the call site (and in TransferRepository) are deliberate here —
     // fromAccountId/toAccountId are both plain Long, so a positional swap would compile
     // silently and move money the wrong direction.
-    fun addTransfer(fromAccountId: Long, toAccountId: Long, amount: Double, note: String) {
+    fun addTransfer(fromAccountId: Long, toAccountId: Long, amount: Double, note: String, timestampMillis: Long) {
         viewModelScope.launch {
             transferRepository.addTransfer(
                 fromAccountId = fromAccountId,
                 toAccountId = toAccountId,
                 amount = amount,
-                note = note
+                note = note,
+                timestampMillis = timestampMillis
             )
         }
     }
@@ -288,8 +317,12 @@ class SpendStreakViewModel(
         }
     }
 
-    fun addAccount(name: String, type: String) {
-        viewModelScope.launch { accountRepository.addAccount(name, type) }
+    fun addAccount(name: String, type: String, openingBalance: Double) {
+        viewModelScope.launch { accountRepository.addAccount(name, type, openingBalance) }
+    }
+
+    fun updateAccount(account: Account) {
+        viewModelScope.launch { accountRepository.updateAccount(account) }
     }
 
     fun deleteAccount(accountId: Long, onResult: (Boolean) -> Unit) {

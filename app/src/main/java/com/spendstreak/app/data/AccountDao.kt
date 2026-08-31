@@ -3,12 +3,16 @@ package com.spendstreak.app.data
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
+import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface AccountDao {
     @Insert
     suspend fun insert(account: Account): Long
+
+    @Update
+    suspend fun update(account: Account)
 
     @Query("SELECT * FROM accounts ORDER BY id ASC")
     fun getAll(): Flow<List<Account>>

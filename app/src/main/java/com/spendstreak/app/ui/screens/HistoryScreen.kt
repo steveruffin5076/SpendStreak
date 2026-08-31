@@ -12,7 +12,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -53,16 +57,56 @@ fun HistoryScreen(
     onDeleteIncome: (Long, onResult: (Boolean) -> Unit) -> Unit,
     onUpdateTransfer: (Transfer) -> Unit,
     onDeleteTransfer: (Long, onResult: (Boolean) -> Unit) -> Unit,
+    onAddCategory: (name: String, kind: String, emoji: String) -> Unit,
+    onRenameCategory: (category: Category, name: String, emoji: String) -> Unit,
+    onDeleteCategory: (categoryId: Long, onResult: (Boolean) -> Unit) -> Unit,
+    // Also reused (via AccountsScreen -> MainActivity) as a single account's activity
+    // view — same list/edit UI, just pre-filtered, rather than a second near-duplicate
+    // screen. filterAccountId null means the ordinary, unfiltered History tab.
+    filterAccountId: Long? = null,
+    title: String = "HISTORY",
+    onBack: (() -> Unit)? = null,
+    // Lets the account-detail view (see filterAccountId above) inject its editable
+    // opening-balance panel above the transaction list, without HistoryScreen itself
+    // needing to know anything about accounts/balances.
+    headerContent: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var editingEntry by remember { mutableStateOf<HistoryEntry?>(null) }
+    val displayedEntries = remember(entries, filterAccountId) {
+        if (filterAccountId == null) {
+            entries
+        } else {
+            entries.filter { entry ->
+                when (entry) {
+                    is HistoryEntry.ExpenseEntry -> entry.expense.accountId == filterAccountId
+                    is HistoryEntry.IncomeEntry -> entry.income.accountId == filterAccountId
+                    is HistoryEntry.TransferEntry ->
+                        entry.transfer.fromAccountId == filterAccountId || entry.transfer.toAccountId == filterAccountId
+                }
+            }
+        }
+    }
 
     Column(modifier = modifier.fillMaxSize().padding(20.dp)) {
-        Text(text = "HISTORY", style = MaterialTheme.typography.headlineMedium)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (onBack != null) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                }
+            }
+            Text(text = title, style = MaterialTheme.typography.headlineMedium)
+        }
 
-        if (entries.isEmpty()) {
+        headerContent?.invoke()
+
+        if (displayedEntries.isEmpty()) {
             Text(
-                text = "No transactions logged yet. Add one from the Add tab to get started.",
+                text = if (filterAccountId == null) {
+                    "No transactions logged yet. Add one from the Add tab to get started."
+                } else {
+                    "No transactions for this account yet."
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = 24.dp)
             )
@@ -74,7 +118,7 @@ fun HistoryScreen(
                 modifier = Modifier.padding(top = 4.dp)
             )
             LazyColumn(modifier = Modifier.weight(1f).padding(top = 8.dp)) {
-                items(entries, key = { entryKey(it) }) { entry ->
+                items(displayedEntries, key = { entryKey(it) }) { entry ->
                     HistoryRow(entry, onClick = { editingEntry = entry })
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
                 }
@@ -95,6 +139,9 @@ fun HistoryScreen(
             onSaveExpense = { onUpdateExpense(it); editingEntry = null },
             onSaveIncome = { onUpdateIncome(it); editingEntry = null },
             onSaveTransfer = { onUpdateTransfer(it); editingEntry = null },
+            onAddCategory = onAddCategory,
+            onRenameCategory = onRenameCategory,
+            onDeleteCategory = onDeleteCategory,
             onDelete = { onResult ->
                 when (entry) {
                     is HistoryEntry.ExpenseEntry -> onDeleteExpense(entry.expense.id, onResult)

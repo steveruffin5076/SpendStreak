@@ -12,7 +12,14 @@ class IncomeRepository(
 
     // Insert + streak update run in one transaction so a process death between the two
     // can't leave a durably-saved income entry with no matching streak/XP credit.
-    suspend fun addIncome(amount: Double, categoryId: Long, accountId: Long, note: String) {
+    suspend fun addIncome(
+        amount: Double,
+        categoryId: Long,
+        accountId: Long,
+        note: String,
+        timestampMillis: Long = System.currentTimeMillis(),
+        excludedFromBudget: Boolean = false
+    ) {
         database.withTransaction {
             database.incomeDao().insert(
                 Income(
@@ -20,7 +27,8 @@ class IncomeRepository(
                     categoryId = categoryId,
                     note = note,
                     accountId = accountId,
-                    timestampMillis = System.currentTimeMillis()
+                    timestampMillis = timestampMillis,
+                    excludedFromBudget = excludedFromBudget
                 )
             )
             userProgressRepository.recordDailyActivity()

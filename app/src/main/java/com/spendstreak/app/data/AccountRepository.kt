@@ -7,8 +7,12 @@ class AccountRepository(private val database: SpendStreakDatabase) {
 
     val accounts: Flow<List<Account>> = database.accountDao().getAll()
 
-    suspend fun addAccount(name: String, type: String) {
-        database.accountDao().insert(Account(name = name, type = type))
+    suspend fun addAccount(name: String, type: String, openingBalance: Double) {
+        database.accountDao().insert(Account(name = name, type = type, openingBalance = openingBalance))
+    }
+
+    suspend fun updateAccount(account: Account) {
+        database.accountDao().update(account)
     }
 
     // Returns false without deleting if the account has any linked Expense/Income —

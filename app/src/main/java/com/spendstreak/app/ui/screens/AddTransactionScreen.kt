@@ -3,12 +3,10 @@ package com.spendstreak.app.ui.screens
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -16,6 +14,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -43,6 +42,7 @@ import com.spendstreak.app.data.Category
 import com.spendstreak.app.data.CategoryKind
 import com.spendstreak.app.ui.components.AccountPickerSheet
 import com.spendstreak.app.ui.components.CategoryPickerSheet
+import com.spendstreak.app.ui.components.DateFieldSection
 import com.spendstreak.app.ui.components.RetroPanel
 import com.spendstreak.app.util.currentCurrencySymbol
 
@@ -54,9 +54,9 @@ private enum class TransactionMode { EXPENSE, INCOME, TRANSFER }
 fun AddTransactionScreen(
     accounts: List<Account>,
     categories: List<Category>,
-    onSaveExpense: (amount: Double, categoryId: Long, accountId: Long, note: String) -> Unit,
-    onSaveIncome: (amount: Double, categoryId: Long, accountId: Long, note: String) -> Unit,
-    onSaveTransfer: (amount: Double, fromAccountId: Long, toAccountId: Long, note: String) -> Unit,
+    onSaveExpense: (amount: Double, categoryId: Long, accountId: Long, note: String, timestampMillis: Long, excludedFromBudget: Boolean) -> Unit,
+    onSaveIncome: (amount: Double, categoryId: Long, accountId: Long, note: String, timestampMillis: Long, excludedFromBudget: Boolean) -> Unit,
+    onSaveTransfer: (amount: Double, fromAccountId: Long, toAccountId: Long, note: String, timestampMillis: Long) -> Unit,
     onAddCategory: (name: String, kind: String, emoji: String) -> Unit,
     onRenameCategory: (category: Category, name: String, emoji: String) -> Unit,
     onDeleteCategory: (categoryId: Long, onResult: (Boolean) -> Unit) -> Unit,
@@ -65,6 +65,8 @@ fun AddTransactionScreen(
     var mode by rememberSaveable { mutableStateOf(TransactionMode.EXPENSE) }
     var amount by rememberSaveable { mutableStateOf("") }
     var note by rememberSaveable { mutableStateOf("") }
+    var selectedDateMillis by rememberSaveable { mutableStateOf(System.currentTimeMillis()) }
+    var excludedFromBudget by rememberSaveable { mutableStateOf(false) }
     var selectedExpenseCategoryId by rememberSaveable { mutableStateOf<Long?>(null) }
     var selectedIncomeCategoryId by rememberSaveable { mutableStateOf<Long?>(null) }
     var selectedAccountId by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -133,14 +135,14 @@ fun AddTransactionScreen(
                         statusMessage = "No category available yet."
                         return
                     }
-                    onSaveExpense(parsedAmount, categoryId, accountId, note)
+                    onSaveExpense(parsedAmount, categoryId, accountId, note, selectedDateMillis, excludedFromBudget)
                 } else {
                     val categoryId = selectedIncomeCategoryId
                     if (categoryId == null) {
                         statusMessage = "No source available yet."
                         return
                     }
-                    onSaveIncome(parsedAmount, categoryId, accountId, note)
+                    onSaveIncome(parsedAmount, categoryId, accountId, note, selectedDateMillis, excludedFromBudget)
                 }
             }
             TransactionMode.TRANSFER -> {
@@ -154,11 +156,13 @@ fun AddTransactionScreen(
                     statusMessage = "Choose two different accounts."
                     return
                 }
-                onSaveTransfer(parsedAmount, fromId, toId, note)
+                onSaveTransfer(parsedAmount, fromId, toId, note, selectedDateMillis)
             }
         }
         amount = ""
         note = ""
+        selectedDateMillis = System.currentTimeMillis()
+        excludedFromBudget = false
         keyboardController?.hide()
         statusMessage = "Saved!"
     }
@@ -217,6 +221,11 @@ fun AddTransactionScreen(
                 .focusRequester(amountFocusRequester)
         )
 
+        DateFieldSection(
+            timestampMillis = selectedDateMillis,
+            onDateChange = { selectedDateMillis = it }
+        )
+
         when (mode) {
             TransactionMode.EXPENSE, TransactionMode.INCOME -> {
                 CategoryOrSourceSection(
@@ -244,6 +253,18 @@ fun AddTransactionScreen(
                     onFromSelected = { selectedFromAccountId = it },
                     onToSelected = { selectedToAccountId = it }
                 )
+            }
+        }
+
+        if (mode != TransactionMode.TRANSFER) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { excludedFromBudget = !excludedFromBudget }
+            ) {
+                Checkbox(checked = excludedFromBudget, onCheckedChange = { excludedFromBudget = it })
+                Text(text = "EXCLUDE FROM MONTHLY BUDGET", style = MaterialTheme.typography.bodyMedium)
             }
         }
 
@@ -403,38 +424,81 @@ private fun TransferAccountsSection(
     onFromSelected: (Long) -> Unit,
     onToSelected: (Long) -> Unit
 ) {
+    var showFromPicker by remember { mutableStateOf(false) }
+    var showToPicker by remember { mutableStateOf(false) }
+    val selectedFromAccount = accounts.find { it.id == selectedFromAccountId }
+    val selectedToAccount = accounts.find { it.id == selectedToAccountId }
+
+    // Same compact-trigger-opens-a-sheet pattern as ACCOUNT/CATEGORY above, for the
+    // same long-account-name reason.
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(text = "FROM", style = MaterialTheme.typography.labelLarge)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            accounts.forEach { account ->
-                FilterChip(
-                    selected = selectedFromAccountId == account.id,
-                    onClick = { onFromSelected(account.id) },
-                    label = {
-                        Text(text = account.name.uppercase(), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    },
-                    modifier = Modifier.widthIn(max = 160.dp)
+        RetroPanel(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { showFromPicker = true }
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = (selectedFromAccount?.name ?: "SELECT").uppercase(),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f, fill = false)
                 )
+                Text(text = "CHANGE", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
             }
         }
     }
+    if (showFromPicker) {
+        AccountPickerSheet(
+            title = "FROM ACCOUNT",
+            accounts = accounts,
+            selectedAccountId = selectedFromAccountId,
+            onSelect = onFromSelected,
+            onDismiss = { showFromPicker = false }
+        )
+    }
+
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(text = "TO", style = MaterialTheme.typography.labelLarge)
-        // The chip matching the current FROM selection is disabled so the two pickers
-        // can't both point at the same account — submit() still re-checks this, since
-        // disabling alone doesn't help when fewer than 2 accounts exist.
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            accounts.forEach { account ->
-                FilterChip(
-                    selected = selectedToAccountId == account.id,
-                    enabled = account.id != selectedFromAccountId,
-                    onClick = { onToSelected(account.id) },
-                    label = {
-                        Text(text = account.name.uppercase(), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    },
-                    modifier = Modifier.widthIn(max = 160.dp)
+        // The account matching the current FROM selection is excluded from this
+        // picker so the two can't both point at the same account — submit() still
+        // re-checks this too, since exclusion alone doesn't help when fewer than 2
+        // accounts exist.
+        RetroPanel(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { showToPicker = true }
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = (selectedToAccount?.name ?: "SELECT").uppercase(),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f, fill = false)
                 )
+                Text(text = "CHANGE", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
             }
         }
+    }
+    if (showToPicker) {
+        AccountPickerSheet(
+            title = "TO ACCOUNT",
+            accounts = accounts,
+            selectedAccountId = selectedToAccountId,
+            disabledAccountId = selectedFromAccountId,
+            onSelect = onToSelected,
+            onDismiss = { showToPicker = false }
+        )
     }
 }

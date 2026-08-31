@@ -8,14 +8,20 @@ class TransferRepository(private val database: SpendStreakDatabase) {
 
     val transfers: Flow<List<Transfer>> = database.transferDao().getAll()
 
-    suspend fun addTransfer(fromAccountId: Long, toAccountId: Long, amount: Double, note: String) {
+    suspend fun addTransfer(
+        fromAccountId: Long,
+        toAccountId: Long,
+        amount: Double,
+        note: String,
+        timestampMillis: Long = System.currentTimeMillis()
+    ) {
         database.transferDao().insert(
             Transfer(
                 fromAccountId = fromAccountId,
                 toAccountId = toAccountId,
                 amount = amount,
                 note = note,
-                timestampMillis = System.currentTimeMillis()
+                timestampMillis = timestampMillis
             )
         )
     }

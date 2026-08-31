@@ -1,8 +1,9 @@
 package com.spendstreak.app.ui.components
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -10,8 +11,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -24,8 +25,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.spendstreak.app.data.Account
 import com.spendstreak.app.data.Category
@@ -38,11 +41,10 @@ import java.util.Locale
 
 // Kept separate from AddTransactionScreen's create flow (which already has its own dense
 // mode-switching state machine) rather than bolting an edit mode onto it — lower risk of
-// regressing the create flow, at the cost of some duplicated layout here. Category/account
-// selection here is a plain FlowRow of chips, not the full CategoryPickerSheet — editing is
-// a less-frequent action than creating, and nesting one ModalBottomSheet inside another for
-// add/edit-category CRUD would be awkward; you can already add/rename/delete categories from
-// the Add screen's picker.
+// regressing the create flow, at the cost of some duplicated layout here. Category and
+// account selection both use the same compact-trigger-opens-a-sheet pattern as the Add
+// screen (CategoryPickerSheet / AccountPickerSheet, nested inside this ModalBottomSheet),
+// so add/rename/delete category CRUD is reachable from here too, not just from Add.
 sealed interface EditableTransaction {
     data class ExpenseEdit(val expense: Expense) : EditableTransaction
     data class IncomeEdit(val income: Income) : EditableTransaction
@@ -60,6 +62,9 @@ fun EditTransactionSheet(
     onSaveExpense: (Expense) -> Unit,
     onSaveIncome: (Income) -> Unit,
     onSaveTransfer: (Transfer) -> Unit,
+    onAddCategory: (name: String, kind: String, emoji: String) -> Unit,
+    onRenameCategory: (category: Category, name: String, emoji: String) -> Unit,
+    onDeleteCategory: (categoryId: Long, onResult: (Boolean) -> Unit) -> Unit,
     onDelete: (onResult: (Boolean) -> Unit) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -73,9 +78,21 @@ fun EditTransactionSheet(
         is EditableTransaction.IncomeEdit -> entry.income.note
         is EditableTransaction.TransferEdit -> entry.transfer.note
     }
+    val initialTimestampMillis = when (entry) {
+        is EditableTransaction.ExpenseEdit -> entry.expense.timestampMillis
+        is EditableTransaction.IncomeEdit -> entry.income.timestampMillis
+        is EditableTransaction.TransferEdit -> entry.transfer.timestampMillis
+    }
+    val initialExcludedFromBudget = when (entry) {
+        is EditableTransaction.ExpenseEdit -> entry.expense.excludedFromBudget
+        is EditableTransaction.IncomeEdit -> entry.income.excludedFromBudget
+        is EditableTransaction.TransferEdit -> false
+    }
 
     var amount by remember { mutableStateOf(String.format(Locale.US, "%.2f", initialAmount)) }
     var note by remember { mutableStateOf(initialNote) }
+    var selectedDateMillis by remember { mutableStateOf(initialTimestampMillis) }
+    var excludedFromBudget by remember { mutableStateOf(initialExcludedFromBudget) }
     var selectedCategoryId by remember {
         mutableStateOf(
             when (entry) {
@@ -117,7 +134,16 @@ fun EditTransactionSheet(
                     statusMessage = "Choose a category and account."
                     return
                 }
-                onSaveExpense(entry.expense.copy(amount = parsedAmount, categoryId = categoryId, accountId = accountId, note = note))
+                onSaveExpense(
+                    entry.expense.copy(
+                        amount = parsedAmount,
+                        categoryId = categoryId,
+                        accountId = accountId,
+                        note = note,
+                        timestampMillis = selectedDateMillis,
+                        excludedFromBudget = excludedFromBudget
+                    )
+                )
             }
             is EditableTransaction.IncomeEdit -> {
                 val categoryId = selectedCategoryId
@@ -126,7 +152,16 @@ fun EditTransactionSheet(
                     statusMessage = "Choose a source and account."
                     return
                 }
-                onSaveIncome(entry.income.copy(amount = parsedAmount, categoryId = categoryId, accountId = accountId, note = note))
+                onSaveIncome(
+                    entry.income.copy(
+                        amount = parsedAmount,
+                        categoryId = categoryId,
+                        accountId = accountId,
+                        note = note,
+                        timestampMillis = selectedDateMillis,
+                        excludedFromBudget = excludedFromBudget
+                    )
+                )
             }
             is EditableTransaction.TransferEdit -> {
                 val fromId = selectedFromAccountId
@@ -139,7 +174,15 @@ fun EditTransactionSheet(
                     statusMessage = "Choose two different accounts."
                     return
                 }
-                onSaveTransfer(entry.transfer.copy(amount = parsedAmount, fromAccountId = fromId, toAccountId = toId, note = note))
+                onSaveTransfer(
+                    entry.transfer.copy(
+                        amount = parsedAmount,
+                        fromAccountId = fromId,
+                        toAccountId = toId,
+                        note = note,
+                        timestampMillis = selectedDateMillis
+                    )
+                )
             }
         }
         onDismiss()
@@ -173,56 +216,166 @@ fun EditTransactionSheet(
                 modifier = Modifier.fillMaxWidth()
             )
 
+            DateFieldSection(
+                timestampMillis = selectedDateMillis,
+                onDateChange = { selectedDateMillis = it }
+            )
+
             when (entry) {
                 is EditableTransaction.ExpenseEdit, is EditableTransaction.IncomeEdit -> {
                     val kind = if (entry is EditableTransaction.ExpenseEdit) CategoryKind.EXPENSE else CategoryKind.INCOME
                     val options = categories.filter { it.kind == kind }
+                    val isExpense = entry is EditableTransaction.ExpenseEdit
+                    val selectedCategory = options.find { it.id == selectedCategoryId }
+                    var showCategoryPicker by remember { mutableStateOf(false) }
+
                     Text(
-                        text = if (entry is EditableTransaction.ExpenseEdit) "CATEGORY" else "SOURCE",
+                        text = if (isExpense) "CATEGORY" else "SOURCE",
                         style = MaterialTheme.typography.labelLarge
                     )
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        options.forEach { category ->
-                            FilterChip(
-                                selected = selectedCategoryId == category.id,
-                                onClick = { selectedCategoryId = category.id },
-                                label = { Text("${category.emoji} ${category.name.uppercase()}") }
+                    RetroPanel(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showCategoryPicker = true }
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "${selectedCategory?.emoji ?: "❓"} ${(selectedCategory?.name ?: "SELECT").uppercase()}",
+                                style = MaterialTheme.typography.bodyMedium
                             )
+                            Text(text = "CHANGE", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                         }
                     }
+                    if (showCategoryPicker) {
+                        CategoryPickerSheet(
+                            title = if (isExpense) "SELECT CATEGORY" else "SELECT SOURCE",
+                            categories = options,
+                            selectedCategoryId = selectedCategoryId ?: -1L,
+                            onSelect = { selectedCategoryId = it },
+                            onAddCategory = { name, emoji -> onAddCategory(name, kind, emoji) },
+                            onRenameCategory = onRenameCategory,
+                            onDeleteCategory = { category, onResult -> onDeleteCategory(category.id, onResult) },
+                            onDismiss = { showCategoryPicker = false }
+                        )
+                    }
+
+                    var showAccountPicker by remember { mutableStateOf(false) }
+                    val selectedAccount = accounts.find { it.id == selectedAccountId }
                     Text(text = "ACCOUNT", style = MaterialTheme.typography.labelLarge)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        accounts.forEach { account ->
-                            FilterChip(
-                                selected = selectedAccountId == account.id,
-                                onClick = { selectedAccountId = account.id },
-                                label = { Text(account.name.uppercase()) }
+                    RetroPanel(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showAccountPicker = true }
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = (selectedAccount?.name ?: "SELECT").uppercase(),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f, fill = false)
                             )
+                            Text(text = "CHANGE", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                         }
+                    }
+                    if (showAccountPicker) {
+                        AccountPickerSheet(
+                            title = "SELECT ACCOUNT",
+                            accounts = accounts,
+                            selectedAccountId = selectedAccountId,
+                            onSelect = { selectedAccountId = it },
+                            onDismiss = { showAccountPicker = false }
+                        )
                     }
                 }
                 is EditableTransaction.TransferEdit -> {
+                    var showFromPicker by remember { mutableStateOf(false) }
+                    var showToPicker by remember { mutableStateOf(false) }
+                    val selectedFromAccount = accounts.find { it.id == selectedFromAccountId }
+                    val selectedToAccount = accounts.find { it.id == selectedToAccountId }
+
                     Text(text = "FROM", style = MaterialTheme.typography.labelLarge)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        accounts.forEach { account ->
-                            FilterChip(
-                                selected = selectedFromAccountId == account.id,
-                                onClick = { selectedFromAccountId = account.id },
-                                label = { Text(account.name.uppercase()) }
+                    RetroPanel(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showFromPicker = true }
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = (selectedFromAccount?.name ?: "SELECT").uppercase(),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f, fill = false)
                             )
+                            Text(text = "CHANGE", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                         }
                     }
+                    if (showFromPicker) {
+                        AccountPickerSheet(
+                            title = "FROM ACCOUNT",
+                            accounts = accounts,
+                            selectedAccountId = selectedFromAccountId,
+                            onSelect = { selectedFromAccountId = it },
+                            onDismiss = { showFromPicker = false }
+                        )
+                    }
+
                     Text(text = "TO", style = MaterialTheme.typography.labelLarge)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        accounts.forEach { account ->
-                            FilterChip(
-                                selected = selectedToAccountId == account.id,
-                                enabled = account.id != selectedFromAccountId,
-                                onClick = { selectedToAccountId = account.id },
-                                label = { Text(account.name.uppercase()) }
+                    RetroPanel(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showToPicker = true }
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = (selectedToAccount?.name ?: "SELECT").uppercase(),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f, fill = false)
                             )
+                            Text(text = "CHANGE", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                         }
                     }
+                    if (showToPicker) {
+                        AccountPickerSheet(
+                            title = "TO ACCOUNT",
+                            accounts = accounts,
+                            selectedAccountId = selectedToAccountId,
+                            disabledAccountId = selectedFromAccountId,
+                            onSelect = { selectedToAccountId = it },
+                            onDismiss = { showToPicker = false }
+                        )
+                    }
+                }
+            }
+
+            if (entry !is EditableTransaction.TransferEdit) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { excludedFromBudget = !excludedFromBudget }
+                ) {
+                    Checkbox(checked = excludedFromBudget, onCheckedChange = { excludedFromBudget = it })
+                    Text(text = "EXCLUDE FROM MONTHLY BUDGET", style = MaterialTheme.typography.bodyMedium)
                 }
             }
 
