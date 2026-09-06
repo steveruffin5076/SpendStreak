@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "84165794083",
+    "project_id": "spendstreak-c8465",
+    "storage_bucket": "spendstreak-c8465.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:84165794083:android:8158a8a51ab31d1b43d496",
+        "android_client_info": {
+          "package_name": "com.spendstreak.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBwi80H561YAycgLTOGSkjHJ6Hl-nwmOp0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

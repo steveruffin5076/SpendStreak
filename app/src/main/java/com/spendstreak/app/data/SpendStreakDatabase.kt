@@ -11,10 +11,10 @@ import com.spendstreak.app.util.SPENDSTREAK_PREFS_NAME
 @Database(
     entities = [
         Expense::class, UserProgress::class, Account::class, Income::class, Budget::class,
-        Transfer::class, Category::class, RecurringTransaction::class
+        Transfer::class, Category::class, RecurringTransaction::class, CategoryBudget::class
     ],
-    version = 8,
-    exportSchema = false
+    version = 9,
+    exportSchema = true
 )
 abstract class SpendStreakDatabase : RoomDatabase() {
     abstract fun expenseDao(): ExpenseDao
@@ -25,6 +25,7 @@ abstract class SpendStreakDatabase : RoomDatabase() {
     abstract fun transferDao(): TransferDao
     abstract fun categoryDao(): CategoryDao
     abstract fun recurringTransactionDao(): RecurringTransactionDao
+    abstract fun categoryBudgetDao(): CategoryBudgetDao
 
     companion object {
         @Volatile
@@ -171,8 +172,21 @@ abstract class SpendStreakDatabase : RoomDatabase() {
             }
         }
 
+        // 8->9: adds the `category_budgets` table (optional per-category monthly spending
+        // cap). Brand-new feature, no prior data to carry forward — a plain CREATE TABLE.
+        // internal (not private) so MigrationTest (androidTest) can run it directly against
+        // the exported v8/v9 schemas via MigrationTestHelper.
+        internal val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS category_budgets (" +
+                        "categoryId INTEGER NOT NULL PRIMARY KEY, monthlyLimit REAL NOT NULL)"
+                )
+            }
+        }
+
         private val MIGRATIONS: Array<Migration> = arrayOf(
-            MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8
+            MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9
         )
 
         // Set at most once per process: true only when this launch's onCreate fired (a
@@ -196,7 +210,12 @@ abstract class SpendStreakDatabase : RoomDatabase() {
                             if (hadLaunchedBefore) {
                                 dataWasResetOnLaunch = true
                             }
-                            db.execSQL("INSERT INTO accounts (name, type) VALUES ('Cash', 'Cash')")
+                            // openingBalance is explicit here (not left to a Kotlin-side default)
+                            // because Room doesn't translate an entity property's default value
+                            // into a SQL-level DEFAULT on a freshly CREATEd table — only a
+                            // migration's own ALTER TABLE ... DEFAULT clause does that, and this
+                            // onCreate path (a brand-new install) never runs any migration.
+                            db.execSQL("INSERT INTO accounts (name, type, openingBalance) VALUES ('Cash', 'Cash', 0.0)")
                             DEFAULT_EXPENSE_CATEGORIES.forEach { (name, emoji) ->
                                 db.execSQL(
                                     "INSERT INTO categories (name, kind, emoji) VALUES ('$name', 'EXPENSE', '$emoji')"

@@ -10,9 +10,10 @@ import com.spendstreak.app.data.AccountRepository
 import com.spendstreak.app.data.Achievement
 import com.spendstreak.app.data.Achievements
 import com.spendstreak.app.data.Budget
-import com.spendstreak.app.data.BudgetPeriodType
 import com.spendstreak.app.data.BudgetRepository
 import com.spendstreak.app.data.Category
+import com.spendstreak.app.data.CategoryBudget
+import com.spendstreak.app.data.CategoryBudgetRepository
 import com.spendstreak.app.data.CategoryRepository
 import com.spendstreak.app.data.Expense
 import com.spendstreak.app.data.ExpenseRepository
@@ -33,8 +34,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.time.LocalDate
-import java.time.ZoneId
 
 data class WeeklySummary(val count: Int, val total: Double)
 
@@ -83,7 +82,8 @@ class SpendStreakViewModel(
     private val transferRepository: TransferRepository,
     private val userProgressRepository: UserProgressRepository,
     private val categoryRepository: CategoryRepository,
-    private val recurringTransactionRepository: RecurringTransactionRepository
+    private val recurringTransactionRepository: RecurringTransactionRepository,
+    private val categoryBudgetRepository: CategoryBudgetRepository
 ) : ViewModel() {
 
     val expenses: StateFlow<List<Expense>> = expenseRepository.expenses
@@ -128,19 +128,8 @@ class SpendStreakViewModel(
     // instead means credit limit — a spending cap, not money contributing to a balance).
     // Transfers move money between accounts (source down, destination up).
     val accountBalances: StateFlow<Map<Long, Double>> =
-        combine(expenses, income, transfers, accounts) { exp, inc, trans, accts ->
-            val balances = mutableMapOf<Long, Double>()
-            accts.forEach { account ->
-                balances[account.id] = if (account.type == Account.TYPE_CREDIT_CARD) 0.0 else account.openingBalance
-            }
-            inc.forEach { balances[it.accountId] = (balances[it.accountId] ?: 0.0) + it.amount }
-            exp.forEach { balances[it.accountId] = (balances[it.accountId] ?: 0.0) - it.amount }
-            trans.forEach {
-                balances[it.fromAccountId] = (balances[it.fromAccountId] ?: 0.0) - it.amount
-                balances[it.toAccountId] = (balances[it.toAccountId] ?: 0.0) + it.amount
-            }
-            balances
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+        combine(expenses, income, transfers, accounts, ::computeAccountBalances)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     // The Dashboard total — sum of every account's own balance above, so a Credit
     // Card's actual spending/debt still counts (same as any other account activity)
@@ -181,26 +170,15 @@ class SpendStreakViewModel(
             (expenseEntries + incomeEntries + transferEntries).sortedByDescending { it.timestampMillis }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val budgetProgress: StateFlow<BudgetProgress?> = combine(expenses, budget) { exp, activeBudget ->
-        if (activeBudget == null) return@combine null
-        val zone = ZoneId.systemDefault()
-        val (periodStartMillis, periodEndMillis) = if (activeBudget.periodType == BudgetPeriodType.MONTHLY) {
-            val startOfMonth = LocalDate.now(zone).withDayOfMonth(1).atStartOfDay(zone).toInstant().toEpochMilli()
-            startOfMonth to System.currentTimeMillis()
-        } else {
-            val start = activeBudget.startEpochDay
-                ?.let { LocalDate.ofEpochDay(it).atStartOfDay(zone).toInstant().toEpochMilli() }
-                ?: 0L
-            val end = activeBudget.endEpochDay
-                ?.let { LocalDate.ofEpochDay(it).plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli() }
-                ?: System.currentTimeMillis()
-            start to end
-        }
-        val spent = exp
-            .filter { it.timestampMillis in periodStartMillis until periodEndMillis && !it.excludedFromBudget }
-            .sumOf { it.amount }
-        BudgetProgress(limit = activeBudget.amountLimit, spent = spent, isOverBudget = spent > activeBudget.amountLimit)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    val budgetProgress: StateFlow<BudgetProgress?> = combine(expenses, budget, ::computeBudgetProgress)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    val categoryBudgets: StateFlow<List<CategoryBudget>> = categoryBudgetRepository.categoryBudgets
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val categoryBudgetProgress: StateFlow<Map<Long, BudgetProgress>> =
+        combine(expenses, categoryBudgets, ::computeCategoryBudgetProgress)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     val achievements: StateFlow<List<Achievement>> =
         combine(expenses, income, transfers, progress) { exp, inc, trans, prog ->
@@ -361,6 +339,14 @@ class SpendStreakViewModel(
         viewModelScope.launch { budgetRepository.clearBudget() }
     }
 
+    fun setCategoryBudgetLimit(categoryId: Long, monthlyLimit: Double) {
+        viewModelScope.launch { categoryBudgetRepository.setLimit(categoryId, monthlyLimit) }
+    }
+
+    fun clearCategoryBudgetLimit(categoryId: Long) {
+        viewModelScope.launch { categoryBudgetRepository.clearLimit(categoryId) }
+    }
+
     // Runs as one transaction so a mid-sequence failure can't leave data partially
     // cleared, and reports success/failure back to the caller instead of assuming it
     // worked — the UI shouldn't say "cleared" before this coroutine actually finishes.
@@ -372,6 +358,7 @@ class SpendStreakViewModel(
                     incomeRepository.clearAllData()
                     transferRepository.clearAllData()
                     budgetRepository.clearAllData()
+                    categoryBudgetRepository.clearAllData()
                     recurringTransactionRepository.clearAllData()
                     userProgressRepository.clear()
                 }
@@ -395,7 +382,8 @@ class SpendStreakViewModel(
             transferRepository: TransferRepository,
             userProgressRepository: UserProgressRepository,
             categoryRepository: CategoryRepository,
-            recurringTransactionRepository: RecurringTransactionRepository
+            recurringTransactionRepository: RecurringTransactionRepository,
+            categoryBudgetRepository: CategoryBudgetRepository
         ) = viewModelFactory {
             initializer {
                 SpendStreakViewModel(
@@ -407,7 +395,8 @@ class SpendStreakViewModel(
                     transferRepository,
                     userProgressRepository,
                     categoryRepository,
-                    recurringTransactionRepository
+                    recurringTransactionRepository,
+                    categoryBudgetRepository
                 )
             }
         }

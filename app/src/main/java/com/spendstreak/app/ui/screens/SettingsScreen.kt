@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
@@ -29,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import com.spendstreak.app.ads.BannerAdView
 import com.spendstreak.app.ui.components.CurrencyPickerDialog
 import com.spendstreak.app.ui.components.RetroPanel
+import com.spendstreak.app.ui.theme.ThemeMode
 import com.spendstreak.app.ui.theme.ThemeOption
 import com.spendstreak.app.util.currencyOptionFor
 
@@ -44,16 +46,21 @@ fun SettingsScreen(
     unlockedThemes: List<ThemeOption>,
     selectedTheme: ThemeOption,
     onSelectTheme: (ThemeOption) -> Unit,
+    themeMode: ThemeMode,
+    onSelectThemeMode: (ThemeMode) -> Unit,
     currencyCode: String,
     onSelectCurrency: (String) -> Unit,
     onExportData: () -> Unit,
     onImportData: () -> Unit,
+    onExportBackup: () -> Unit,
+    onImportBackup: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var dataMessage by remember { mutableStateOf<String?>(null) }
     var showCurrencyPicker by remember { mutableStateOf(false) }
     var showClearDataConfirm by remember { mutableStateOf(false) }
     var showImportConfirm by remember { mutableStateOf(false) }
+    var showRestoreBackupConfirm by remember { mutableStateOf(false) }
 
     if (showCurrencyPicker) {
         CurrencyPickerDialog(
@@ -87,6 +94,31 @@ fun SettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showImportConfirm = false }) { Text("CANCEL") }
+            }
+        )
+    }
+
+    if (showRestoreBackupConfirm) {
+        AlertDialog(
+            onDismissRequest = { showRestoreBackupConfirm = false },
+            title = { Text("Restore full backup?") },
+            text = {
+                Text(
+                    "This will replace EVERYTHING — accounts, categories, expenses, income, " +
+                        "transfers, budgets, category budgets, recurring rules, and your " +
+                        "streak/level progress — with what's in the file you pick. This can't be undone."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showRestoreBackupConfirm = false
+                    onImportBackup()
+                }) {
+                    Text("RESTORE", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRestoreBackupConfirm = false }) { Text("CANCEL") }
             }
         )
     }
@@ -179,11 +211,31 @@ fun SettingsScreen(
 
         RetroPanel(modifier = Modifier.fillMaxWidth()) {
             Text(text = "APPEARANCE", style = MaterialTheme.typography.labelLarge)
+
+            Text(
+                text = "MODE",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                modifier = Modifier.padding(top = 10.dp)
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(top = 6.dp)
+            ) {
+                ThemeMode.entries.forEach { mode ->
+                    FilterChip(
+                        selected = themeMode == mode,
+                        onClick = { onSelectThemeMode(mode) },
+                        label = { Text(mode.name) }
+                    )
+                }
+            }
+
             Text(
                 text = "Unlocked automatically as you level up — a cosmetic reward, never a paywall.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                modifier = Modifier.padding(top = 4.dp)
+                modifier = Modifier.padding(top = 12.dp)
             )
             ThemeOption.entries.forEach { theme ->
                 val isUnlocked = theme in unlockedThemes
@@ -300,6 +352,36 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(top = 8.dp)
                 )
+            }
+        }
+
+        RetroPanel(modifier = Modifier.fillMaxWidth()) {
+            Text(text = "FULL BACKUP & RESTORE", style = MaterialTheme.typography.labelLarge)
+            Text(
+                text = "Unlike the CSV export above, this covers everything — accounts, " +
+                    "categories, budgets, recurring rules, and your streak/level progress " +
+                    "too. Use it before switching phones or reinstalling.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                modifier = Modifier.padding(top = 4.dp)
+            )
+            OutlinedButton(
+                onClick = onExportBackup,
+                shape = MaterialTheme.shapes.small,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp)
+            ) {
+                Text("EXPORT FULL BACKUP")
+            }
+            OutlinedButton(
+                onClick = { showRestoreBackupConfirm = true },
+                shape = MaterialTheme.shapes.small,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp)
+            ) {
+                Text("RESTORE FROM BACKUP")
             }
         }
 

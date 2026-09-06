@@ -1,11 +1,13 @@
 package com.spendstreak.app.ui.screens
 
+import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -31,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
@@ -77,6 +80,7 @@ fun AddTransactionScreen(
     val amountFocusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
+    val context = LocalContext.current
 
     LaunchedEffect(accounts) {
         if (selectedAccountId == null || accounts.none { it.id == selectedAccountId }) {
@@ -164,7 +168,8 @@ fun AddTransactionScreen(
         selectedDateMillis = System.currentTimeMillis()
         excludedFromBudget = false
         keyboardController?.hide()
-        statusMessage = "Saved!"
+        statusMessage = null
+        Toast.makeText(context, "Saved!", Toast.LENGTH_SHORT).show()
     }
 
     LaunchedEffect(Unit) {
@@ -174,6 +179,7 @@ fun AddTransactionScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
+            .imePadding()
             .verticalScroll(rememberScrollState())
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)

@@ -28,4 +28,10 @@ interface CategoryDao {
 
     @Query("DELETE FROM categories WHERE id = :categoryId")
     suspend fun delete(categoryId: Long)
+
+    // Only for the full-backup restore path (BackupImporter) — unlike delete() above,
+    // and unlike "Clear All Data" (which deliberately keeps categories), a backup restore
+    // wholesale replaces every table including this one.
+    @Query("DELETE FROM categories")
+    suspend fun deleteAll()
 }

@@ -18,6 +18,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -35,14 +36,18 @@ import com.spendstreak.app.data.Category
 import com.spendstreak.app.data.Expense
 import com.spendstreak.app.data.Income
 import com.spendstreak.app.data.Transfer
+import com.spendstreak.app.ui.components.DateRangeSection
 import com.spendstreak.app.ui.components.EditTransactionSheet
 import com.spendstreak.app.ui.components.EditableTransaction
+import com.spendstreak.app.ui.components.MILLIS_PER_DAY
 import com.spendstreak.app.ui.theme.RetroBlue
 import com.spendstreak.app.util.formatCurrency
 import com.spendstreak.app.viewmodel.HistoryEntry
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 private val DATE_FORMATTER = DateTimeFormatter.ofPattern("MMM d")
 
@@ -73,18 +78,22 @@ fun HistoryScreen(
     modifier: Modifier = Modifier
 ) {
     var editingEntry by remember { mutableStateOf<HistoryEntry?>(null) }
-    val displayedEntries = remember(entries, filterAccountId) {
-        if (filterAccountId == null) {
-            entries
-        } else {
-            entries.filter { entry ->
-                when (entry) {
-                    is HistoryEntry.ExpenseEntry -> entry.expense.accountId == filterAccountId
-                    is HistoryEntry.IncomeEntry -> entry.income.accountId == filterAccountId
-                    is HistoryEntry.TransferEntry ->
-                        entry.transfer.fromAccountId == filterAccountId || entry.transfer.toAccountId == filterAccountId
-                }
+    var startDateMillis by remember { mutableStateOf<Long?>(null) }
+    var endDateMillis by remember { mutableStateOf<Long?>(null) }
+    var searchQuery by remember { mutableStateOf("") }
+    val displayedEntries = remember(entries, filterAccountId, startDateMillis, endDateMillis, searchQuery) {
+        val (rangeStart, rangeEnd) = dateRangeBounds(startDateMillis, endDateMillis)
+        entries.filter { entry ->
+            val matchesAccount = filterAccountId == null || when (entry) {
+                is HistoryEntry.ExpenseEntry -> entry.expense.accountId == filterAccountId
+                is HistoryEntry.IncomeEntry -> entry.income.accountId == filterAccountId
+                is HistoryEntry.TransferEntry ->
+                    entry.transfer.fromAccountId == filterAccountId || entry.transfer.toAccountId == filterAccountId
             }
+            val timestamp = entryTimestamp(entry)
+            matchesAccount &&
+                timestamp >= rangeStart && timestamp < rangeEnd &&
+                entryMatchesQuery(entry, searchQuery)
         }
     }
 
@@ -100,12 +109,50 @@ fun HistoryScreen(
 
         headerContent?.invoke()
 
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            label = { Text("SEARCH") },
+            singleLine = true,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 12.dp)
+        )
+
+        Column(modifier = Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(text = "FILTER BY DATE", style = MaterialTheme.typography.labelLarge)
+                if (startDateMillis != null || endDateMillis != null) {
+                    Text(
+                        text = "CLEAR",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.clickable {
+                            startDateMillis = null
+                            endDateMillis = null
+                        }
+                    )
+                }
+            }
+            DateRangeSection(
+                startMillis = startDateMillis,
+                endMillis = endDateMillis,
+                onStartChange = { startDateMillis = it },
+                onEndChange = { endDateMillis = it }
+            )
+        }
+
         if (displayedEntries.isEmpty()) {
             Text(
-                text = if (filterAccountId == null) {
-                    "No transactions logged yet. Add one from the Add tab to get started."
-                } else {
-                    "No transactions for this account yet."
+                text = when {
+                    searchQuery.isNotBlank() -> "No transactions match \"$searchQuery\"."
+                    startDateMillis != null || endDateMillis != null -> "No transactions in this date range."
+                    filterAccountId == null -> "No transactions logged yet. Add one from the Add tab to get started."
+                    else -> "No transactions for this account yet."
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = 24.dp)
@@ -158,6 +205,59 @@ private fun entryKey(entry: HistoryEntry): String = when (entry) {
     is HistoryEntry.ExpenseEntry -> "expense-${entry.expense.id}"
     is HistoryEntry.IncomeEntry -> "income-${entry.income.id}"
     is HistoryEntry.TransferEntry -> "transfer-${entry.transfer.id}"
+}
+
+private fun entryTimestamp(entry: HistoryEntry): Long = when (entry) {
+    is HistoryEntry.ExpenseEntry -> entry.expense.timestampMillis
+    is HistoryEntry.IncomeEntry -> entry.income.timestampMillis
+    is HistoryEntry.TransferEntry -> entry.transfer.timestampMillis
+}
+
+// Matches on category/source name, account name(s), note (all case-insensitive substring),
+// or amount — a query that parses as a number matches if it's contained in the entry's
+// plain "12.34"-style amount string, so searching "50" finds a 50.00 entry without needing
+// the currency symbol or exact decimal precision.
+private fun entryMatchesQuery(entry: HistoryEntry, query: String): Boolean {
+    if (query.isBlank()) return true
+    val q = query.trim()
+    val note: String
+    val names: List<String>
+    val amount: Double
+    when (entry) {
+        is HistoryEntry.ExpenseEntry -> {
+            note = entry.expense.note
+            names = listOf(entry.categoryName, entry.accountName)
+            amount = entry.expense.amount
+        }
+        is HistoryEntry.IncomeEntry -> {
+            note = entry.income.note
+            names = listOf(entry.categoryName, entry.accountName)
+            amount = entry.income.amount
+        }
+        is HistoryEntry.TransferEntry -> {
+            note = entry.transfer.note
+            names = listOf(entry.fromAccountName, entry.toAccountName)
+            amount = entry.transfer.amount
+        }
+    }
+    val textMatch = (names + note).any { it.contains(q, ignoreCase = true) }
+    val amountMatch = String.format(Locale.US, "%.2f", amount).contains(q)
+    return textMatch || amountMatch
+}
+
+// startDateMillis/endDateMillis are DateRangeSection's UTC-midnight epoch-day millis
+// (see MILLIS_PER_DAY) — converted here into actual local-zone instants so they can be
+// compared directly against entry timestamps. endDateMillis is inclusive of its whole
+// day, hence the +1 day exclusive upper bound.
+private fun dateRangeBounds(startDateMillis: Long?, endDateMillis: Long?): Pair<Long, Long> {
+    val zone = ZoneId.systemDefault()
+    val start = startDateMillis
+        ?.let { LocalDate.ofEpochDay(it / MILLIS_PER_DAY).atStartOfDay(zone).toInstant().toEpochMilli() }
+        ?: Long.MIN_VALUE
+    val end = endDateMillis
+        ?.let { LocalDate.ofEpochDay(it / MILLIS_PER_DAY).plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli() }
+        ?: Long.MAX_VALUE
+    return start to end
 }
 
 @Composable

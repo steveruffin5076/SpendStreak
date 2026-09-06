@@ -60,3 +60,26 @@ val NeonGridSecondary = Color(0xFF3CF0FF)
 val NeonGridSecondaryOn = Color(0xFF002E33)
 val NeonGridTertiary = Color(0xFF5CFF7A)
 val NeonGridTertiaryOn = Color(0xFF003309)
+
+// Light-mode variants of the 4 themes above. Same primary/secondary/tertiary accent hues
+// (and their existing *On pairings, which are already dark ink tones contrast-paired
+// against a saturated accent chip, not against the page background — so they carry over
+// unchanged) — only background/surface/surfaceVariant flip to light, tinted toward each
+// theme's own hue family. Body-text ink in every light variant reuses that theme's
+// original dark *Background color, so light mode reads as the same skin, not a generic
+// swap.
+val RetroBackgroundLight = Color(0xFFFBF8F0)
+val RetroSurfaceLight = Color(0xFFF4EFDF)
+val RetroSurfaceVariantLight = Color(0xFFEBE2C8)
+
+val CyberTealBackgroundLight = Color(0xFFF0FBF9)
+val CyberTealSurfaceLight = Color(0xFFE1F5F0)
+val CyberTealSurfaceVariantLight = Color(0xFFCFEDE5)
+
+val SunsetArcadeBackgroundLight = Color(0xFFFDF1F6)
+val SunsetArcadeSurfaceLight = Color(0xFFFBE2EC)
+val SunsetArcadeSurfaceVariantLight = Color(0xFFF7CFE0)
+
+val NeonGridBackgroundLight = Color(0xFFF5F0FB)
+val NeonGridSurfaceLight = Color(0xFFE9DFF6)
+val NeonGridSurfaceVariantLight = Color(0xFFDBCBF0)

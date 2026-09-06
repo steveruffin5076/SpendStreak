@@ -4,6 +4,8 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.google.services)
+    alias(libs.plugins.firebase.crashlytics)
 }
 
 val keystoreProperties = Properties().apply {
@@ -23,8 +25,8 @@ android {
         applicationId = "com.spendstreak.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 6
-        versionName = "1.0.2"
+        versionCode = 9
+        versionName = "1.1.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -43,7 +45,10 @@ android {
     buildTypes {
         release {
             optimization {
-                enable = false
+                enable = true
+                keepRules {
+                    files.add(file("proguard-rules.pro"))
+                }
             }
             if (keystoreProperties.containsKey("storeFile")) {
                 signingConfig = signingConfigs.getByName("release")
@@ -57,6 +62,19 @@ android {
     buildFeatures {
         compose = true
     }
+
+    // Bundles the exported Room schema JSON (see ksp room.schemaLocation below) as an
+    // androidTest asset, so MigrationTestHelper can construct an old-version database to
+    // migrate from in MigrationTest.
+    sourceSets {
+        getByName("androidTest").assets.directories.add("$projectDir/schemas")
+    }
+}
+
+// Room migration tests (see MigrationTest in androidTest) need the exported schema JSON
+// for each version to construct an old-version database to migrate from.
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {
@@ -76,11 +94,14 @@ dependencies {
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.play.services.ads)
     implementation(libs.user.messaging.platform)
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.crashlytics)
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.room.testing)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

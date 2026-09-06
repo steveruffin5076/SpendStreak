@@ -12,6 +12,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -20,6 +21,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -31,6 +33,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.spendstreak.app.data.Budget
 import com.spendstreak.app.data.BudgetPeriodType
+import com.spendstreak.app.data.Category
+import com.spendstreak.app.data.CategoryBudget
+import com.spendstreak.app.data.CategoryKind
 import com.spendstreak.app.ui.components.DateRangeSection
 import com.spendstreak.app.ui.components.EditBudgetSheet
 import com.spendstreak.app.ui.components.MILLIS_PER_DAY
@@ -54,6 +59,11 @@ fun BudgetScreen(
     onUpdateBudget: (Budget) -> Unit,
     onDeleteBudget: (Long) -> Unit,
     onClearBudget: () -> Unit,
+    categories: List<Category>,
+    categoryBudgets: List<CategoryBudget>,
+    categoryBudgetProgress: Map<Long, BudgetProgress>,
+    onSetCategoryBudgetLimit: (categoryId: Long, monthlyLimit: Double) -> Unit,
+    onClearCategoryBudgetLimit: (categoryId: Long) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -71,6 +81,7 @@ fun BudgetScreen(
     // `budget != null` — with no active budget there's nothing to "start new" instead of.
     var startingNew by remember { mutableStateOf(false) }
     var editingHistoryBudget by remember { mutableStateOf<Budget?>(null) }
+    var editingCategoryId by remember { mutableStateOf<Long?>(null) }
 
     fun submit() {
         val parsedAmount = amount.toDoubleOrNull()
@@ -282,6 +293,65 @@ fun BudgetScreen(
             }
         }
 
+        val expenseCategories = categories.filter { it.kind == CategoryKind.EXPENSE }
+        if (expenseCategories.isNotEmpty()) {
+            RetroPanel(modifier = Modifier.fillMaxWidth()) {
+                Text(text = "CATEGORY BUDGETS", style = MaterialTheme.typography.labelLarge)
+                Text(
+                    text = "Optional monthly caps per category. Tap a category to set, change, or clear its limit.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+                expenseCategories.forEach { category ->
+                    val cap = categoryBudgets.find { it.categoryId == category.id }
+                    val catProgress = categoryBudgetProgress[category.id]
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { editingCategoryId = category.id }
+                            .padding(top = 10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(text = "${category.emoji} ${category.name.uppercase()}", style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                text = if (cap != null) formatCurrency(cap.monthlyLimit) else "SET LIMIT",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (cap != null) {
+                                    MaterialTheme.colorScheme.onSurface
+                                } else {
+                                    MaterialTheme.colorScheme.primary
+                                }
+                            )
+                        }
+                        if (cap != null && catProgress != null) {
+                            val accentColor = if (catProgress.isOverBudget) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.primary
+                            }
+                            Text(
+                                text = "${formatCurrency(catProgress.spent)} / ${formatAmount(catProgress.limit)}",
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(top = 2.dp)
+                            )
+                            RetroProgressBar(
+                                progress = (catProgress.spent / catProgress.limit).toFloat(),
+                                filledColor = accentColor,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 4.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
         val pastBudgets = budgetHistory.filter { it.id != budget?.id }
         if (pastBudgets.isNotEmpty()) {
             RetroPanel(modifier = Modifier.fillMaxWidth()) {
@@ -337,4 +407,60 @@ fun BudgetScreen(
             onDismiss = { editingHistoryBudget = null }
         )
     }
+
+    val editingCategory = categories.find { it.id == editingCategoryId }
+    if (editingCategory != null) {
+        CategoryBudgetLimitDialog(
+            category = editingCategory,
+            currentLimit = categoryBudgets.find { it.categoryId == editingCategory.id }?.monthlyLimit,
+            onSave = { limit ->
+                onSetCategoryBudgetLimit(editingCategory.id, limit)
+                editingCategoryId = null
+            },
+            onClear = {
+                onClearCategoryBudgetLimit(editingCategory.id)
+                editingCategoryId = null
+            },
+            onDismiss = { editingCategoryId = null }
+        )
+    }
+}
+
+@Composable
+private fun CategoryBudgetLimitDialog(
+    category: Category,
+    currentLimit: Double?,
+    onSave: (Double) -> Unit,
+    onClear: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    var limitText by remember(category.id) { mutableStateOf(currentLimit?.let { formatAmount(it) } ?: "") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("${category.emoji} ${category.name.uppercase()}") },
+        text = {
+            OutlinedTextField(
+                value = limitText,
+                onValueChange = { new -> if (AMOUNT_PATTERN.matches(new)) limitText = new },
+                label = { Text("MONTHLY LIMIT (${currentCurrencySymbol()})") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val parsed = limitText.toDoubleOrNull()
+                if (parsed != null && parsed > 0) onSave(parsed)
+            }) { Text("SAVE") }
+        },
+        dismissButton = {
+            Row {
+                if (currentLimit != null) {
+                    TextButton(onClick = onClear) { Text("CLEAR") }
+                }
+                TextButton(onClick = onDismiss) { Text("CANCEL") }
+            }
+        }
+    )
 }

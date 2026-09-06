@@ -10,6 +10,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
@@ -35,6 +36,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.spendstreak.app.data.AccountRepository
 import com.spendstreak.app.data.BudgetRepository
+import com.spendstreak.app.data.CategoryBudgetRepository
 import com.spendstreak.app.data.CategoryRepository
 import com.spendstreak.app.data.ExpenseRepository
 import com.spendstreak.app.data.IncomeRepository
@@ -42,8 +44,11 @@ import com.spendstreak.app.data.RecurringTransactionRepository
 import com.spendstreak.app.data.SpendStreakDatabase
 import com.spendstreak.app.data.TransferRepository
 import com.spendstreak.app.data.UserProgressRepository
+import com.spendstreak.app.export.BackupImportResult
 import com.spendstreak.app.export.ImportResult
+import com.spendstreak.app.export.exportAndShareBackup
 import com.spendstreak.app.export.exportAndShareCsv
+import com.spendstreak.app.export.importBackupReplacingAll
 import com.spendstreak.app.export.importCsvReplacingAll
 import com.spendstreak.app.reminder.cancelReminderChecks
 import com.spendstreak.app.reminder.loadRemindersEnabled
@@ -62,8 +67,11 @@ import com.spendstreak.app.ui.screens.ReportsScreen
 import com.spendstreak.app.ui.screens.RecurringTransactionsScreen
 import com.spendstreak.app.ui.screens.SettingsScreen
 import com.spendstreak.app.ui.theme.SpendStreakTheme
+import com.spendstreak.app.ui.theme.ThemeMode
 import com.spendstreak.app.ui.theme.loadSelectedTheme
+import com.spendstreak.app.ui.theme.loadThemeMode
 import com.spendstreak.app.ui.theme.saveSelectedTheme
+import com.spendstreak.app.ui.theme.saveThemeMode
 import com.spendstreak.app.ui.theme.unlockedThemesForLevel
 import com.spendstreak.app.util.LocalCurrencyCode
 import com.spendstreak.app.util.loadCurrencyCode
@@ -113,6 +121,7 @@ fun SpendStreakApp() {
     val transferRepository = remember { TransferRepository(database) }
     val categoryRepository = remember { CategoryRepository(database) }
     val recurringTransactionRepository = remember { RecurringTransactionRepository(database) }
+    val categoryBudgetRepository = remember { CategoryBudgetRepository(database) }
     val viewModel: SpendStreakViewModel = viewModel(
         factory = SpendStreakViewModel.factory(
             database,
@@ -123,13 +132,20 @@ fun SpendStreakApp() {
             transferRepository,
             userProgressRepository,
             categoryRepository,
-            recurringTransactionRepository
+            recurringTransactionRepository,
+            categoryBudgetRepository
         )
     )
 
     var showDataResetNotice by remember { mutableStateOf(SpendStreakDatabase.dataWasResetOnLaunch) }
     var showWelcomeDialog by remember { mutableStateOf(!loadHasSeenWelcome(appContext)) }
     var selectedTheme by remember { mutableStateOf(loadSelectedTheme(appContext)) }
+    var selectedThemeMode by remember { mutableStateOf(loadThemeMode(appContext)) }
+    val isDarkTheme = when (selectedThemeMode) {
+        ThemeMode.DARK -> true
+        ThemeMode.LIGHT -> false
+        ThemeMode.SYSTEM -> isSystemInDarkTheme()
+    }
     var selectedCurrencyCode by remember { mutableStateOf(loadCurrencyCode(appContext)) }
     var remindersEnabled by remember { mutableStateOf(loadRemindersEnabled(appContext)) }
 
@@ -170,6 +186,26 @@ fun SpendStreakApp() {
         }
     }
 
+    var backupImportResultMessage by remember { mutableStateOf<String?>(null) }
+    val importBackupLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            coroutineScope.launch {
+                when (val result = importBackupReplacingAll(appContext, database, uri)) {
+                    is BackupImportResult.Success -> {
+                        backupImportResultMessage = "Restore complete: ${result.accountCount} accounts, " +
+                            "${result.categoryCount} categories, ${result.expenseCount} expenses, " +
+                            "${result.incomeCount} income, ${result.transferCount} transfers."
+                    }
+                    is BackupImportResult.Failure -> {
+                        backupImportResultMessage = "Restore failed: ${result.reason} Nothing was changed."
+                    }
+                }
+            }
+        }
+    }
+
     fun onToggleReminders(enabled: Boolean) {
         remindersEnabled = enabled
         saveRemindersEnabled(appContext, enabled)
@@ -199,6 +235,8 @@ fun SpendStreakApp() {
     val budget by viewModel.budget.collectAsState()
     val budgetHistory by viewModel.budgetHistory.collectAsState()
     val budgetProgress by viewModel.budgetProgress.collectAsState()
+    val categoryBudgets by viewModel.categoryBudgets.collectAsState()
+    val categoryBudgetProgress by viewModel.categoryBudgetProgress.collectAsState()
     val balance by viewModel.balance.collectAsState()
     val historyEntries by viewModel.historyEntries.collectAsState()
     val achievements by viewModel.achievements.collectAsState()
@@ -206,7 +244,7 @@ fun SpendStreakApp() {
     val unlockedThemes = unlockedThemesForLevel(progress.level)
 
     CompositionLocalProvider(LocalCurrencyCode provides selectedCurrencyCode) {
-    SpendStreakTheme(themeOption = selectedTheme) {
+    SpendStreakTheme(themeOption = selectedTheme, isDark = isDarkTheme) {
     if (showWelcomeDialog) {
         AlertDialog(
             onDismissRequest = {
@@ -255,6 +293,17 @@ fun SpendStreakApp() {
                 TextButton(onClick = { importResultMessage = null }) { Text("OK") }
             },
             title = { Text("Import CSV") },
+            text = { Text(message) }
+        )
+    }
+
+    backupImportResultMessage?.let { message ->
+        AlertDialog(
+            onDismissRequest = { backupImportResultMessage = null },
+            confirmButton = {
+                TextButton(onClick = { backupImportResultMessage = null }) { Text("OK") }
+            },
+            title = { Text("Restore Backup") },
             text = { Text(message) }
         )
     }
@@ -398,6 +447,11 @@ fun SpendStreakApp() {
                     onUpdateBudget = { viewModel.updateBudget(it) },
                     onDeleteBudget = { viewModel.deleteBudget(it) },
                     onClearBudget = { viewModel.clearBudget() },
+                    categories = categories,
+                    categoryBudgets = categoryBudgets,
+                    categoryBudgetProgress = categoryBudgetProgress,
+                    onSetCategoryBudgetLimit = { categoryId, limit -> viewModel.setCategoryBudgetLimit(categoryId, limit) },
+                    onClearCategoryBudgetLimit = { categoryId -> viewModel.clearCategoryBudgetLimit(categoryId) },
                     onBack = { settingsSubScreen = null }
                 )
                 SettingsSubScreen.Reports -> ReportsScreen(
@@ -438,6 +492,11 @@ fun SpendStreakApp() {
                         selectedTheme = theme
                         saveSelectedTheme(appContext, theme)
                     },
+                    themeMode = selectedThemeMode,
+                    onSelectThemeMode = { mode ->
+                        selectedThemeMode = mode
+                        saveThemeMode(appContext, mode)
+                    },
                     currencyCode = selectedCurrencyCode,
                     onSelectCurrency = { code ->
                         selectedCurrencyCode = code
@@ -448,6 +507,12 @@ fun SpendStreakApp() {
                     },
                     onImportData = {
                         importCsvLauncher.launch(arrayOf("text/*", "text/comma-separated-values", "text/csv"))
+                    },
+                    onExportBackup = {
+                        coroutineScope.launch { exportAndShareBackup(appContext, database) }
+                    },
+                    onImportBackup = {
+                        importBackupLauncher.launch(arrayOf("application/json", "text/*"))
                     }
                 )
             }
