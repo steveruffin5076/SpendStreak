@@ -6,13 +6,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.FilterChip
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -40,10 +37,12 @@ import com.spendstreak.app.data.Category
 import com.spendstreak.app.data.Expense
 import com.spendstreak.app.data.Income
 import com.spendstreak.app.data.Transfer
+import com.spendstreak.app.ui.components.AccountPickerSheet
 import com.spendstreak.app.ui.components.DateRangeSection
 import com.spendstreak.app.ui.components.EditTransactionSheet
 import com.spendstreak.app.ui.components.EditableTransaction
 import com.spendstreak.app.ui.components.MILLIS_PER_DAY
+import com.spendstreak.app.ui.components.RetroPanel
 import com.spendstreak.app.ui.theme.RetroBlue
 import com.spendstreak.app.util.formatCurrency
 import com.spendstreak.app.viewmodel.HistoryEntry
@@ -55,7 +54,6 @@ import java.util.Locale
 
 private val DATE_FORMATTER = DateTimeFormatter.ofPattern("MMM d")
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun HistoryScreen(
     entries: List<HistoryEntry>,
@@ -158,34 +156,13 @@ fun HistoryScreen(
         }
 
         if (filterAccountId == null && accounts.isNotEmpty()) {
-            Column(modifier = Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(text = "FILTER BY ACCOUNT", style = MaterialTheme.typography.labelLarge)
-                    if (selectedAccountFilter != null) {
-                        TextButton(onClick = { selectedAccountFilter = null }) {
-                            Text("CLEAR")
-                        }
-                    }
-                }
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    accounts.forEach { account ->
-                        FilterChip(
-                            selected = selectedAccountFilter == account.id,
-                            onClick = {
-                                selectedAccountFilter = if (selectedAccountFilter == account.id) null else account.id
-                            },
-                            label = { Text(account.name.uppercase()) }
-                        )
-                    }
-                }
-            }
+            HistoryAccountFilterSection(
+                accounts = accounts,
+                selectedAccountId = selectedAccountFilter,
+                onAccountSelected = { selectedAccountFilter = it },
+                onClear = { selectedAccountFilter = null },
+                modifier = Modifier.padding(top = 12.dp)
+            )
         }
 
         if (displayedEntries.isEmpty()) {
@@ -240,6 +217,70 @@ fun HistoryScreen(
                 }
             },
             onDismiss = { editingEntry = null }
+        )
+    }
+}
+
+@Composable
+private fun HistoryAccountFilterSection(
+    accounts: List<Account>,
+    selectedAccountId: Long?,
+    onAccountSelected: (Long) -> Unit,
+    onClear: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var showPicker by remember { mutableStateOf(false) }
+    val selected = accounts.find { it.id == selectedAccountId }
+
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(text = "ACCOUNT", style = MaterialTheme.typography.labelLarge)
+            if (selectedAccountId != null) {
+                TextButton(onClick = onClear) {
+                    Text("CLEAR")
+                }
+            }
+        }
+        RetroPanel(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { showPicker = true }
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = (selected?.name ?: "ALL ACCOUNTS").uppercase(),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                Text(
+                    text = "CHANGE",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+    }
+
+    if (showPicker) {
+        AccountPickerSheet(
+            title = "SELECT ACCOUNT",
+            accounts = accounts,
+            selectedAccountId = selectedAccountId,
+            onSelect = { accountId ->
+                onAccountSelected(accountId)
+                showPicker = false
+            },
+            onDismiss = { showPicker = false }
         )
     }
 }

@@ -4,12 +4,21 @@ Running log of work sessions, audits, and decisions. Newest entry on top.
 
 ---
 
+## 2026-09-28 — History account filter UI aligned with Add Transaction
+
+Per user feedback: History account filtering should match the Add Expense/Income account picker, not a chip row.
+
+- [x] `HistoryScreen.kt` — `HistoryAccountFilterSection`: **ACCOUNT** label, `RetroPanel` trigger (selected name or **ALL ACCOUNTS**), **CHANGE** affordance, `AccountPickerSheet` (“SELECT ACCOUNT”), **CLEAR** when a filter is active.
+- [x] Removed per-account `FilterChip` / `FlowRow` from History (filter logic unchanged: `filterAccountId ?: selectedAccountFilter`).
+
+---
+
 ## 2026-09-28 — Progress handoff implementation (full pass)
 
 Implemented all open items from the handoff sections below (feature → High → Medium → Low). Build verified: `:app:compileDebugKotlin` and `:app:testDebugUnitTest` pass.
 
 ### Feature
-- [x] **History filter by account** — `HistoryScreen.kt`: local `selectedAccountFilter`, effective filter `filterAccountId ?: selectedAccountFilter`, chip row hidden when drill-in `filterAccountId` is set, stacks with search/date, 12dp chip spacing.
+- [x] **History filter by account** — `HistoryScreen.kt`: local `selectedAccountFilter`, effective filter `filterAccountId ?: selectedAccountFilter`, hidden when drill-in `filterAccountId` is set, stacks with search/date. UI later aligned with Add Transaction account picker (see entry above).
 
 ### High
 - [x] **Delete account confirmation** — `AccountsScreen.kt`: `AlertDialog` before delete, spinner while delete runs.
@@ -20,7 +29,7 @@ Implemented all open items from the handoff sections below (feature → High →
 - [x] **BudgetScreen lazy lists** — outer `LazyColumn`; category budgets and budget history use `items(..., key = { it.id })`.
 - [x] **CRUD loading guards** — `AccountsScreen` add/delete; `CategoryEditDialog` save/delete; ViewModel `onComplete` on `addAccount` / `addCategory` / `updateCategory`.
 - [x] **Shared form validation** — `util/FormValidation.kt` + unit tests; used by Add/Edit transaction, budget, recurring screens.
-- [x] **FilterChip spacing** — 12dp in `AccountsScreen`, `BudgetScreen`, `RecurringTransactionSheet`, History account chips.
+- [x] **FilterChip spacing** — 12dp in `AccountsScreen`, `BudgetScreen`, `RecurringTransactionSheet`.
 
 ### Low
 - [x] **`categoryColor` floorMod** — `HistoryScreen.kt`.
@@ -38,12 +47,11 @@ Discussed with the user: adding a user-facing "filter by account" control
 to the main History tab. **Implemented** — see entry above.
 
 ### To implement (done)
-- [x] Add a "FILTER BY ACCOUNT" section to `HistoryScreen.kt`
-- [x] FilterChip per account + CLEAR
+- [x] Account filter on `HistoryScreen.kt` (same picker pattern as Add Transaction — `RetroPanel` + `AccountPickerSheet`)
 - [x] Local `selectedAccountFilter` vs `filterAccountId`
-- [x] Hide chips when pre-filtered from Accounts
+- [x] Hide account filter when pre-filtered from Accounts
 - [x] Combine with date/search filters
-- [x] ≥8–12dp chip spacing
+- [x] CLEAR when a filter is active
 
 ---
 
