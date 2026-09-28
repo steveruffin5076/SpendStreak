@@ -57,7 +57,7 @@ fun AchievementsScreen(
                 .fillMaxWidth()
                 .weight(1f)
         ) {
-            items(achievements) { achievement ->
+            items(achievements, key = { it.name }) { achievement ->
                 AchievementBadge(achievement)
             }
         }
@@ -100,7 +100,8 @@ private fun AchievementBadge(achievement: Achievement) {
     }
     val emphasisColor by animateColorAsState(
         targetValue = targetColor,
-        animationSpec = tween(durationMillis = 500)
+        animationSpec = tween(durationMillis = 500),
+        label = "achievementBadgeColor_${achievement.name}"
     )
     RetroPanel(
         modifier = Modifier.fillMaxWidth(),

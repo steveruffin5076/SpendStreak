@@ -7,8 +7,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
@@ -52,31 +52,34 @@ fun RecurringTransactionsScreen(
     val categoryById = remember(categories) { categories.associateBy { it.id } }
     val accountById = remember(accounts) { accounts.associateBy { it.id } }
 
-    Column(
+    LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                }
+                Text(text = "RECURRING", style = MaterialTheme.typography.headlineMedium)
             }
-            Text(text = "RECURRING", style = MaterialTheme.typography.headlineMedium)
         }
-
-        Button(onClick = { showAddSheet = true }, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth()) {
-            Text("+ ADD RECURRING")
+        item {
+            Button(onClick = { showAddSheet = true }, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth()) {
+                Text("+ ADD RECURRING")
+            }
         }
-
         if (recurringTransactions.isEmpty()) {
-            Text(
-                text = "No recurring transactions yet. Add a bill or paycheck to get reminders.",
-                style = MaterialTheme.typography.bodyMedium
-            )
+            item {
+                Text(
+                    text = "No recurring transactions yet. Add a bill or paycheck to get reminders.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
         } else {
-            recurringTransactions.forEach { recurring ->
+            items(recurringTransactions, key = { it.id }) { recurring ->
                 val category = categoryById[recurring.categoryId]
                 val account = accountById[recurring.accountId]
                 RetroPanel(

@@ -23,7 +23,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -96,6 +96,17 @@ class MainActivity : ComponentActivity() {
 
 private enum class SettingsSubScreen { Accounts, Budget, Reports, Recurring }
 
+private data class DataResultDialog(
+    val title: String,
+    val message: String,
+    val onRetry: (() -> Unit)?
+)
+
+private val CSV_MIME_TYPES = arrayOf("text/*", "text/comma-separated-values", "text/csv")
+private val BACKUP_MIME_TYPES = arrayOf("application/json", "text/*")
+
+private enum class DocumentPickerRequest { CsvImport, BackupRestore }
+
 @Composable
 fun SpendStreakApp() {
     var currentScreen by rememberSaveable { mutableStateOf(AppScreen.Dashboard) }
@@ -167,43 +178,80 @@ fun SpendStreakApp() {
         ActivityResultContracts.RequestPermission()
     ) { }
 
-    var importResultMessage by remember { mutableStateOf<String?>(null) }
+    var isDataOperationInProgress by remember { mutableStateOf(false) }
+    var dataResultDialog by remember { mutableStateOf<DataResultDialog?>(null) }
+    var pendingDocumentPicker by remember { mutableStateOf<DocumentPickerRequest?>(null) }
+
     val importCsvLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
             coroutineScope.launch {
-                when (val result = importCsvReplacingAll(appContext, database, uri)) {
-                    is ImportResult.Success -> {
-                        importResultMessage = "Import complete: ${result.expenseCount} expenses, " +
-                            "${result.incomeCount} income, ${result.transferCount} transfers."
+                isDataOperationInProgress = true
+                try {
+                    when (val result = importCsvReplacingAll(appContext, database, uri)) {
+                        is ImportResult.Success -> {
+                            dataResultDialog = DataResultDialog(
+                                title = "Import CSV",
+                                message = "Import complete: ${result.expenseCount} expenses, " +
+                                    "${result.incomeCount} income, ${result.transferCount} transfers.",
+                                onRetry = null
+                            )
+                        }
+                        is ImportResult.Failure -> {
+                            dataResultDialog = DataResultDialog(
+                                title = "Import CSV",
+                                message = "Import failed: ${result.reason} Nothing was changed.",
+                                onRetry = { pendingDocumentPicker = DocumentPickerRequest.CsvImport }
+                            )
+                        }
                     }
-                    is ImportResult.Failure -> {
-                        importResultMessage = "Import failed: ${result.reason} Nothing was changed."
-                    }
+                } finally {
+                    isDataOperationInProgress = false
                 }
             }
         }
     }
 
-    var backupImportResultMessage by remember { mutableStateOf<String?>(null) }
     val importBackupLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
             coroutineScope.launch {
-                when (val result = importBackupReplacingAll(appContext, database, uri)) {
-                    is BackupImportResult.Success -> {
-                        backupImportResultMessage = "Restore complete: ${result.accountCount} accounts, " +
-                            "${result.categoryCount} categories, ${result.expenseCount} expenses, " +
-                            "${result.incomeCount} income, ${result.transferCount} transfers."
+                isDataOperationInProgress = true
+                try {
+                    when (val result = importBackupReplacingAll(appContext, database, uri)) {
+                        is BackupImportResult.Success -> {
+                            dataResultDialog = DataResultDialog(
+                                title = "Restore Backup",
+                                message = "Restore complete: ${result.accountCount} accounts, " +
+                                    "${result.categoryCount} categories, ${result.expenseCount} expenses, " +
+                                    "${result.incomeCount} income, ${result.transferCount} transfers.",
+                                onRetry = null
+                            )
+                        }
+                        is BackupImportResult.Failure -> {
+                            dataResultDialog = DataResultDialog(
+                                title = "Restore Backup",
+                                message = "Restore failed: ${result.reason} Nothing was changed.",
+                                onRetry = { pendingDocumentPicker = DocumentPickerRequest.BackupRestore }
+                            )
+                        }
                     }
-                    is BackupImportResult.Failure -> {
-                        backupImportResultMessage = "Restore failed: ${result.reason} Nothing was changed."
-                    }
+                } finally {
+                    isDataOperationInProgress = false
                 }
             }
         }
+    }
+
+    LaunchedEffect(pendingDocumentPicker) {
+        when (pendingDocumentPicker) {
+            DocumentPickerRequest.CsvImport -> importCsvLauncher.launch(CSV_MIME_TYPES)
+            DocumentPickerRequest.BackupRestore -> importBackupLauncher.launch(BACKUP_MIME_TYPES)
+            null -> Unit
+        }
+        pendingDocumentPicker = null
     }
 
     fun onToggleReminders(enabled: Boolean) {
@@ -224,23 +272,23 @@ fun SpendStreakApp() {
         }
     }
 
-    val progress by viewModel.progress.collectAsState()
-    val weeklySummary by viewModel.weeklySummary.collectAsState()
-    val expenses by viewModel.expenses.collectAsState()
-    val income by viewModel.income.collectAsState()
-    val accounts by viewModel.accounts.collectAsState()
-    val categories by viewModel.categories.collectAsState()
-    val recurringTransactions by viewModel.recurringTransactions.collectAsState()
-    val accountBalances by viewModel.accountBalances.collectAsState()
-    val budget by viewModel.budget.collectAsState()
-    val budgetHistory by viewModel.budgetHistory.collectAsState()
-    val budgetProgress by viewModel.budgetProgress.collectAsState()
-    val categoryBudgets by viewModel.categoryBudgets.collectAsState()
-    val categoryBudgetProgress by viewModel.categoryBudgetProgress.collectAsState()
-    val balance by viewModel.balance.collectAsState()
-    val historyEntries by viewModel.historyEntries.collectAsState()
-    val achievements by viewModel.achievements.collectAsState()
-    val pendingLevelUp by viewModel.pendingLevelUp.collectAsState()
+    val progress by viewModel.progress.collectAsStateWithLifecycle()
+    val weeklySummary by viewModel.weeklySummary.collectAsStateWithLifecycle()
+    val expenses by viewModel.expenses.collectAsStateWithLifecycle()
+    val income by viewModel.income.collectAsStateWithLifecycle()
+    val accounts by viewModel.accounts.collectAsStateWithLifecycle()
+    val categories by viewModel.categories.collectAsStateWithLifecycle()
+    val recurringTransactions by viewModel.recurringTransactions.collectAsStateWithLifecycle()
+    val accountBalances by viewModel.accountBalances.collectAsStateWithLifecycle()
+    val budget by viewModel.budget.collectAsStateWithLifecycle()
+    val budgetHistory by viewModel.budgetHistory.collectAsStateWithLifecycle()
+    val budgetProgress by viewModel.budgetProgress.collectAsStateWithLifecycle()
+    val categoryBudgets by viewModel.categoryBudgets.collectAsStateWithLifecycle()
+    val categoryBudgetProgress by viewModel.categoryBudgetProgress.collectAsStateWithLifecycle()
+    val balance by viewModel.balance.collectAsStateWithLifecycle()
+    val historyEntries by viewModel.historyEntries.collectAsStateWithLifecycle()
+    val achievements by viewModel.achievements.collectAsStateWithLifecycle()
+    val pendingLevelUp by viewModel.pendingLevelUp.collectAsStateWithLifecycle()
     val unlockedThemes = unlockedThemesForLevel(progress.level)
 
     CompositionLocalProvider(LocalCurrencyCode provides selectedCurrencyCode) {
@@ -286,25 +334,24 @@ fun SpendStreakApp() {
         )
     }
 
-    importResultMessage?.let { message ->
+    dataResultDialog?.let { dialog ->
         AlertDialog(
-            onDismissRequest = { importResultMessage = null },
+            onDismissRequest = { dataResultDialog = null },
             confirmButton = {
-                TextButton(onClick = { importResultMessage = null }) { Text("OK") }
+                TextButton(onClick = { dataResultDialog = null }) { Text("OK") }
             },
-            title = { Text("Import CSV") },
-            text = { Text(message) }
-        )
-    }
-
-    backupImportResultMessage?.let { message ->
-        AlertDialog(
-            onDismissRequest = { backupImportResultMessage = null },
-            confirmButton = {
-                TextButton(onClick = { backupImportResultMessage = null }) { Text("OK") }
+            dismissButton = dialog.onRetry?.let { retry ->
+                {
+                    TextButton(onClick = {
+                        dataResultDialog = null
+                        retry()
+                    }) {
+                        Text("TRY AGAIN")
+                    }
+                }
             },
-            title = { Text("Restore Backup") },
-            text = { Text(message) }
+            title = { Text(dialog.title) },
+            text = { Text(dialog.message) }
         )
     }
 
@@ -362,9 +409,11 @@ fun SpendStreakApp() {
                         timestampMillis = timestampMillis
                     )
                 },
-                onAddCategory = { name, kind, emoji -> viewModel.addCategory(name, kind, emoji) },
-                onRenameCategory = { category, name, emoji ->
-                    viewModel.updateCategory(category.copy(name = name, emoji = emoji))
+                onAddCategory = { name, kind, emoji, onComplete ->
+                    viewModel.addCategory(name, kind, emoji, onComplete)
+                },
+                onRenameCategory = { category, name, emoji, onComplete ->
+                    viewModel.updateCategory(category.copy(name = name, emoji = emoji), onComplete)
                 },
                 onDeleteCategory = { categoryId, onResult -> viewModel.deleteCategory(categoryId, onResult) }
             )
@@ -379,9 +428,11 @@ fun SpendStreakApp() {
                 onDeleteIncome = { id, onResult -> viewModel.deleteIncome(id, onResult) },
                 onUpdateTransfer = { viewModel.updateTransfer(it) },
                 onDeleteTransfer = { id, onResult -> viewModel.deleteTransfer(id, onResult) },
-                onAddCategory = { name, kind, emoji -> viewModel.addCategory(name, kind, emoji) },
-                onRenameCategory = { category, name, emoji ->
-                    viewModel.updateCategory(category.copy(name = name, emoji = emoji))
+                onAddCategory = { name, kind, emoji, onComplete ->
+                    viewModel.addCategory(name, kind, emoji, onComplete)
+                },
+                onRenameCategory = { category, name, emoji, onComplete ->
+                    viewModel.updateCategory(category.copy(name = name, emoji = emoji), onComplete)
                 },
                 onDeleteCategory = { categoryId, onResult -> viewModel.deleteCategory(categoryId, onResult) }
             )
@@ -406,9 +457,11 @@ fun SpendStreakApp() {
                             onDeleteIncome = { id, onResult -> viewModel.deleteIncome(id, onResult) },
                             onUpdateTransfer = { viewModel.updateTransfer(it) },
                             onDeleteTransfer = { id, onResult -> viewModel.deleteTransfer(id, onResult) },
-                            onAddCategory = { name, kind, emoji -> viewModel.addCategory(name, kind, emoji) },
-                            onRenameCategory = { category, name, emoji ->
-                                viewModel.updateCategory(category.copy(name = name, emoji = emoji))
+                            onAddCategory = { name, kind, emoji, onComplete ->
+                                viewModel.addCategory(name, kind, emoji, onComplete)
+                            },
+                            onRenameCategory = { category, name, emoji, onComplete ->
+                                viewModel.updateCategory(category.copy(name = name, emoji = emoji), onComplete)
                             },
                             onDeleteCategory = { categoryId, onResult -> viewModel.deleteCategory(categoryId, onResult) },
                             filterAccountId = viewedAccountId,
@@ -428,8 +481,8 @@ fun SpendStreakApp() {
                             modifier = contentModifier,
                             accounts = accounts,
                             accountBalances = accountBalances,
-                            onAddAccount = { name, type, openingBalance ->
-                                viewModel.addAccount(name, type, openingBalance)
+                            onAddAccount = { name, type, openingBalance, onComplete ->
+                                viewModel.addAccount(name, type, openingBalance, onComplete)
                             },
                             onDeleteAccount = { accountId, onResult -> viewModel.deleteAccount(accountId, onResult) },
                             onViewAccount = { accountId -> viewingAccountId = accountId },
@@ -502,17 +555,32 @@ fun SpendStreakApp() {
                         selectedCurrencyCode = code
                         saveCurrencyCode(appContext, code)
                     },
+                    isDataOperationInProgress = isDataOperationInProgress,
                     onExportData = {
-                        coroutineScope.launch { exportAndShareCsv(appContext, historyEntries) }
+                        coroutineScope.launch {
+                            isDataOperationInProgress = true
+                            try {
+                                exportAndShareCsv(appContext, historyEntries)
+                            } finally {
+                                isDataOperationInProgress = false
+                            }
+                        }
                     },
                     onImportData = {
-                        importCsvLauncher.launch(arrayOf("text/*", "text/comma-separated-values", "text/csv"))
+                        importCsvLauncher.launch(CSV_MIME_TYPES)
                     },
                     onExportBackup = {
-                        coroutineScope.launch { exportAndShareBackup(appContext, database) }
+                        coroutineScope.launch {
+                            isDataOperationInProgress = true
+                            try {
+                                exportAndShareBackup(appContext, database)
+                            } finally {
+                                isDataOperationInProgress = false
+                            }
+                        }
                     },
                     onImportBackup = {
-                        importBackupLauncher.launch(arrayOf("application/json", "text/*"))
+                        importBackupLauncher.launch(BACKUP_MIME_TYPES)
                     }
                 )
             }

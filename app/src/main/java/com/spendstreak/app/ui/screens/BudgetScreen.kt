@@ -6,10 +6,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
@@ -42,12 +43,11 @@ import com.spendstreak.app.ui.components.MILLIS_PER_DAY
 import com.spendstreak.app.ui.components.RetroPanel
 import com.spendstreak.app.ui.components.RetroProgressBar
 import com.spendstreak.app.ui.components.formatEpochMillis
+import com.spendstreak.app.util.FormValidation
 import com.spendstreak.app.util.currentCurrencySymbol
 import com.spendstreak.app.util.formatAmount
 import com.spendstreak.app.util.formatCurrency
 import com.spendstreak.app.viewmodel.BudgetProgress
-
-private val AMOUNT_PATTERN = Regex("^\\d{0,9}(\\.\\d{0,2})?$")
 
 @Composable
 fun BudgetScreen(
@@ -84,14 +84,16 @@ fun BudgetScreen(
     var editingCategoryId by remember { mutableStateOf<Long?>(null) }
 
     fun submit() {
-        val parsedAmount = amount.toDoubleOrNull()
         val trimmedName = name.trim()
         val currentBudget = budget
         val editingExisting = currentBudget != null && !startingNew
+        val nameError = FormValidation.validateBudgetName(trimmedName)
+        val amountError = FormValidation.validatePositiveAmount(amount)
         statusMessage = when {
-            trimmedName.isBlank() -> "Enter a name for this budget."
-            parsedAmount == null || parsedAmount <= 0 -> "Enter a valid amount."
+            nameError != null -> nameError
+            amountError != null -> amountError
             periodType == BudgetPeriodType.MONTHLY -> {
+                val parsedAmount = amount.toDoubleOrNull()!!
                 if (editingExisting && currentBudget != null) {
                     onUpdateBudget(
                         currentBudget.copy(
@@ -110,12 +112,13 @@ fun BudgetScreen(
                 }
             }
             else -> {
-                val start = startDateMillis
-                val end = endDateMillis
+                val parsedAmount = amount.toDoubleOrNull()!!
+                val rangeError = FormValidation.validateCustomDateRange(startDateMillis, endDateMillis)
                 when {
-                    start == null || end == null -> "Pick a start and end date."
-                    end < start -> "End date must be on or after the start date."
+                    rangeError != null -> rangeError
                     editingExisting && currentBudget != null -> {
+                        val start = startDateMillis!!
+                        val end = endDateMillis!!
                         onUpdateBudget(
                             currentBudget.copy(
                                 name = trimmedName,
@@ -128,6 +131,8 @@ fun BudgetScreen(
                         "Budget updated."
                     }
                     else -> {
+                        val start = startDateMillis!!
+                        val end = endDateMillis!!
                         onSetCustomBudget(trimmedName, parsedAmount, start / MILLIS_PER_DAY, end / MILLIS_PER_DAY)
                         startingNew = false
                         "Custom budget set."
@@ -137,21 +142,26 @@ fun BudgetScreen(
         }
     }
 
-    Column(
+    val expenseCategories = categories.filter { it.kind == CategoryKind.EXPENSE }
+    val pastBudgets = budgetHistory.filter { it.id != budget?.id }
+
+    LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        item {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
             }
             Text(text = "BUDGET", style = MaterialTheme.typography.headlineMedium)
         }
+        }
 
         if (budgetProgress != null) {
+            item {
             val accentColor = if (budgetProgress.isOverBudget) {
                 MaterialTheme.colorScheme.error
             } else {
@@ -172,8 +182,10 @@ fun BudgetScreen(
                         .padding(top = 10.dp)
                 )
             }
+            }
         }
 
+        item {
         RetroPanel(modifier = Modifier.fillMaxWidth()) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -225,7 +237,7 @@ fun BudgetScreen(
 
             OutlinedTextField(
                 value = amount,
-                onValueChange = { new -> if (AMOUNT_PATTERN.matches(new)) amount = new },
+                onValueChange = { new -> if (FormValidation.AMOUNT_INPUT_PATTERN.matches(new)) amount = new },
                 label = { Text("LIMIT (${currentCurrencySymbol()})") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 modifier = Modifier
@@ -234,7 +246,7 @@ fun BudgetScreen(
             )
 
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.padding(top = 10.dp)
             ) {
                 FilterChip(
@@ -292,102 +304,105 @@ fun BudgetScreen(
                 )
             }
         }
+        }
 
-        val expenseCategories = categories.filter { it.kind == CategoryKind.EXPENSE }
         if (expenseCategories.isNotEmpty()) {
-            RetroPanel(modifier = Modifier.fillMaxWidth()) {
-                Text(text = "CATEGORY BUDGETS", style = MaterialTheme.typography.labelLarge)
-                Text(
-                    text = "Optional monthly caps per category. Tap a category to set, change, or clear its limit.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                    modifier = Modifier.padding(top = 4.dp)
-                )
-                expenseCategories.forEach { category ->
-                    val cap = categoryBudgets.find { it.categoryId == category.id }
-                    val catProgress = categoryBudgetProgress[category.id]
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { editingCategoryId = category.id }
-                            .padding(top = 10.dp)
+            item {
+                RetroPanel(modifier = Modifier.fillMaxWidth()) {
+                    Text(text = "CATEGORY BUDGETS", style = MaterialTheme.typography.labelLarge)
+                    Text(
+                        text = "Optional monthly caps per category. Tap a category to set, change, or clear its limit.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+            }
+            items(expenseCategories, key = { it.id }) { category ->
+                val cap = categoryBudgets.find { it.categoryId == category.id }
+                val catProgress = categoryBudgetProgress[category.id]
+                RetroPanel(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .clickable { editingCategoryId = category.id }
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(text = "${category.emoji} ${category.name.uppercase()}", style = MaterialTheme.typography.bodyMedium)
-                            Text(
-                                text = if (cap != null) formatCurrency(cap.monthlyLimit) else "SET LIMIT",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (cap != null) {
-                                    MaterialTheme.colorScheme.onSurface
-                                } else {
-                                    MaterialTheme.colorScheme.primary
-                                }
-                            )
-                        }
-                        if (cap != null && catProgress != null) {
-                            val accentColor = if (catProgress.isOverBudget) {
-                                MaterialTheme.colorScheme.error
+                        Text(text = "${category.emoji} ${category.name.uppercase()}", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            text = if (cap != null) formatCurrency(cap.monthlyLimit) else "SET LIMIT",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (cap != null) {
+                                MaterialTheme.colorScheme.onSurface
                             } else {
                                 MaterialTheme.colorScheme.primary
                             }
-                            Text(
-                                text = "${formatCurrency(catProgress.spent)} / ${formatAmount(catProgress.limit)}",
-                                style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.padding(top = 2.dp)
-                            )
-                            RetroProgressBar(
-                                progress = (catProgress.spent / catProgress.limit).toFloat(),
-                                filledColor = accentColor,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 4.dp)
-                            )
+                        )
+                    }
+                    if (cap != null && catProgress != null) {
+                        val accentColor = if (catProgress.isOverBudget) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.primary
                         }
+                        Text(
+                            text = "${formatCurrency(catProgress.spent)} / ${formatAmount(catProgress.limit)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(top = 2.dp)
+                        )
+                        RetroProgressBar(
+                            progress = (catProgress.spent / catProgress.limit).toFloat(),
+                            filledColor = accentColor,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp)
+                        )
                     }
                 }
             }
         }
 
-        val pastBudgets = budgetHistory.filter { it.id != budget?.id }
         if (pastBudgets.isNotEmpty()) {
-            RetroPanel(modifier = Modifier.fillMaxWidth()) {
-                Text(text = "BUDGET HISTORY", style = MaterialTheme.typography.labelLarge)
-                Text(
-                    text = "Tap a past budget to edit or delete it.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                    modifier = Modifier.padding(top = 4.dp)
-                )
-                pastBudgets.forEach { past ->
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { editingHistoryBudget = past }
-                            .padding(top = 10.dp)
+            item {
+                RetroPanel(modifier = Modifier.fillMaxWidth()) {
+                    Text(text = "BUDGET HISTORY", style = MaterialTheme.typography.labelLarge)
+                    Text(
+                        text = "Tap a past budget to edit or delete it.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+            }
+            items(pastBudgets, key = { it.id }) { past ->
+                RetroPanel(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .clickable { editingHistoryBudget = past }
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(text = past.name.uppercase(), style = MaterialTheme.typography.bodyMedium)
-                            Text(text = formatCurrency(past.amountLimit), style = MaterialTheme.typography.bodyMedium)
-                        }
-                        Text(
-                            text = if (past.periodType == BudgetPeriodType.MONTHLY) {
-                                "Monthly"
-                            } else {
-                                val start = past.startEpochDay?.let { formatEpochMillis(it * MILLIS_PER_DAY) } ?: "?"
-                                val end = past.endEpochDay?.let { formatEpochMillis(it * MILLIS_PER_DAY) } ?: "?"
-                                "$start – $end"
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        )
+                        Text(text = past.name.uppercase(), style = MaterialTheme.typography.bodyMedium)
+                        Text(text = formatCurrency(past.amountLimit), style = MaterialTheme.typography.bodyMedium)
                     }
+                    Text(
+                        text = if (past.periodType == BudgetPeriodType.MONTHLY) {
+                            "Monthly"
+                        } else {
+                            val start = past.startEpochDay?.let { formatEpochMillis(it * MILLIS_PER_DAY) } ?: "?"
+                            val end = past.endEpochDay?.let { formatEpochMillis(it * MILLIS_PER_DAY) } ?: "?"
+                            "$start – $end"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
                 }
             }
         }
@@ -442,7 +457,7 @@ private fun CategoryBudgetLimitDialog(
         text = {
             OutlinedTextField(
                 value = limitText,
-                onValueChange = { new -> if (AMOUNT_PATTERN.matches(new)) limitText = new },
+                onValueChange = { new -> if (FormValidation.AMOUNT_INPUT_PATTERN.matches(new)) limitText = new },
                 label = { Text("MONTHLY LIMIT (${currentCurrencySymbol()})") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 modifier = Modifier.fillMaxWidth()

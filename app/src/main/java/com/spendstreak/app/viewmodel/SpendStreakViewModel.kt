@@ -257,12 +257,18 @@ class SpendStreakViewModel(
         }
     }
 
-    fun addCategory(name: String, kind: String, emoji: String) {
-        viewModelScope.launch { categoryRepository.addCategory(name, kind, emoji) }
+    fun addCategory(name: String, kind: String, emoji: String, onComplete: () -> Unit = {}) {
+        viewModelScope.launch {
+            categoryRepository.addCategory(name, kind, emoji)
+            onComplete()
+        }
     }
 
-    fun updateCategory(category: Category) {
-        viewModelScope.launch { categoryRepository.updateCategory(category) }
+    fun updateCategory(category: Category, onComplete: () -> Unit = {}) {
+        viewModelScope.launch {
+            categoryRepository.updateCategory(category)
+            onComplete()
+        }
     }
 
     fun deleteCategory(categoryId: Long, onResult: (Boolean) -> Unit) {
@@ -295,8 +301,11 @@ class SpendStreakViewModel(
         }
     }
 
-    fun addAccount(name: String, type: String, openingBalance: Double) {
-        viewModelScope.launch { accountRepository.addAccount(name, type, openingBalance) }
+    fun addAccount(name: String, type: String, openingBalance: Double, onComplete: () -> Unit = {}) {
+        viewModelScope.launch {
+            accountRepository.addAccount(name, type, openingBalance)
+            onComplete()
+        }
     }
 
     fun updateAccount(account: Account) {

@@ -44,8 +44,8 @@ fun CategoryPickerSheet(
     categories: List<Category>,
     selectedCategoryId: Long,
     onSelect: (Long) -> Unit,
-    onAddCategory: (name: String, emoji: String) -> Unit,
-    onRenameCategory: (category: Category, name: String, emoji: String) -> Unit,
+    onAddCategory: (name: String, emoji: String, onComplete: () -> Unit) -> Unit,
+    onRenameCategory: (category: Category, name: String, emoji: String, onComplete: () -> Unit) -> Unit,
     onDeleteCategory: (category: Category, onResult: (Boolean) -> Unit) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -100,9 +100,11 @@ fun CategoryPickerSheet(
     if (showAddDialog) {
         CategoryEditDialog(
             existing = null,
-            onSave = { name, emoji ->
-                onAddCategory(name, emoji)
-                showAddDialog = false
+            onSave = { name, emoji, onComplete ->
+                onAddCategory(name, emoji) {
+                    onComplete()
+                    showAddDialog = false
+                }
             },
             onDelete = null,
             onDismiss = { showAddDialog = false }
@@ -112,9 +114,11 @@ fun CategoryPickerSheet(
     editingCategory?.let { category ->
         CategoryEditDialog(
             existing = category,
-            onSave = { name, emoji ->
-                onRenameCategory(category, name, emoji)
-                editingCategory = null
+            onSave = { name, emoji, onComplete ->
+                onRenameCategory(category, name, emoji) {
+                    onComplete()
+                    editingCategory = null
+                }
             },
             onDelete = { onResult ->
                 onDeleteCategory(category) { success ->

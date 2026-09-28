@@ -9,9 +9,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -54,6 +56,7 @@ fun SettingsScreen(
     onImportData: () -> Unit,
     onExportBackup: () -> Unit,
     onImportBackup: () -> Unit,
+    isDataOperationInProgress: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     var dataMessage by remember { mutableStateOf<String?>(null) }
@@ -319,8 +322,23 @@ fun SettingsScreen(
 
         RetroPanel(modifier = Modifier.fillMaxWidth()) {
             Text(text = "DATA", style = MaterialTheme.typography.labelLarge)
+            if (isDataOperationInProgress) {
+                Row(
+                    modifier = Modifier.padding(top = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    Text(
+                        text = "Working on your data…",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
             OutlinedButton(
                 onClick = onExportData,
+                enabled = !isDataOperationInProgress,
                 shape = MaterialTheme.shapes.small,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -330,6 +348,7 @@ fun SettingsScreen(
             }
             OutlinedButton(
                 onClick = { showImportConfirm = true },
+                enabled = !isDataOperationInProgress,
                 shape = MaterialTheme.shapes.small,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -367,6 +386,7 @@ fun SettingsScreen(
             )
             OutlinedButton(
                 onClick = onExportBackup,
+                enabled = !isDataOperationInProgress,
                 shape = MaterialTheme.shapes.small,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -376,6 +396,7 @@ fun SettingsScreen(
             }
             OutlinedButton(
                 onClick = { showRestoreBackupConfirm = true },
+                enabled = !isDataOperationInProgress,
                 shape = MaterialTheme.shapes.small,
                 modifier = Modifier
                     .fillMaxWidth()

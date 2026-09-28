@@ -47,9 +47,8 @@ import com.spendstreak.app.ui.components.AccountPickerSheet
 import com.spendstreak.app.ui.components.CategoryPickerSheet
 import com.spendstreak.app.ui.components.DateFieldSection
 import com.spendstreak.app.ui.components.RetroPanel
+import com.spendstreak.app.util.FormValidation
 import com.spendstreak.app.util.currentCurrencySymbol
-
-private val AMOUNT_PATTERN = Regex("^\\d{0,9}(\\.\\d{0,2})?$")
 
 private enum class TransactionMode { EXPENSE, INCOME, TRANSFER }
 
@@ -60,8 +59,8 @@ fun AddTransactionScreen(
     onSaveExpense: (amount: Double, categoryId: Long, accountId: Long, note: String, timestampMillis: Long, excludedFromBudget: Boolean) -> Unit,
     onSaveIncome: (amount: Double, categoryId: Long, accountId: Long, note: String, timestampMillis: Long, excludedFromBudget: Boolean) -> Unit,
     onSaveTransfer: (amount: Double, fromAccountId: Long, toAccountId: Long, note: String, timestampMillis: Long) -> Unit,
-    onAddCategory: (name: String, kind: String, emoji: String) -> Unit,
-    onRenameCategory: (category: Category, name: String, emoji: String) -> Unit,
+    onAddCategory: (name: String, kind: String, emoji: String, onComplete: () -> Unit) -> Unit,
+    onRenameCategory: (category: Category, name: String, emoji: String, onComplete: () -> Unit) -> Unit,
     onDeleteCategory: (categoryId: Long, onResult: (Boolean) -> Unit) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -121,11 +120,12 @@ fun AddTransactionScreen(
     // Early-return per mode so each branch's account id(s) smart-cast to non-null with
     // no `!!` — validate amount first (mode-agnostic), then mode-specific requirements.
     fun submit() {
-        val parsedAmount = amount.toDoubleOrNull()
-        if (parsedAmount == null || parsedAmount <= 0) {
-            statusMessage = "Enter a valid amount."
+        val amountError = FormValidation.validatePositiveAmount(amount)
+        if (amountError != null) {
+            statusMessage = amountError
             return
         }
+        val parsedAmount = amount.toDoubleOrNull()!!
         when (mode) {
             TransactionMode.EXPENSE, TransactionMode.INCOME -> {
                 val accountId = selectedAccountId
@@ -152,15 +152,12 @@ fun AddTransactionScreen(
             TransactionMode.TRANSFER -> {
                 val fromId = selectedFromAccountId
                 val toId = selectedToAccountId
-                if (fromId == null || toId == null) {
-                    statusMessage = "No account available yet."
+                val transferError = FormValidation.validateTransferAccounts(fromId, toId)
+                if (transferError != null) {
+                    statusMessage = transferError
                     return
                 }
-                if (fromId == toId) {
-                    statusMessage = "Choose two different accounts."
-                    return
-                }
-                onSaveTransfer(parsedAmount, fromId, toId, note, selectedDateMillis)
+                onSaveTransfer(parsedAmount, fromId!!, toId!!, note, selectedDateMillis)
             }
         }
         amount = ""
@@ -180,10 +177,14 @@ fun AddTransactionScreen(
         modifier = modifier
             .fillMaxSize()
             .imePadding()
-            .verticalScroll(rememberScrollState())
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
         Text(
             text = when (mode) {
                 TransactionMode.EXPENSE -> "ADD EXPENSE"
@@ -214,7 +215,7 @@ fun AddTransactionScreen(
         OutlinedTextField(
             value = amount,
             onValueChange = { new ->
-                if (AMOUNT_PATTERN.matches(new)) {
+                if (FormValidation.AMOUNT_INPUT_PATTERN.matches(new)) {
                     amount = new
                     statusMessage = null
                 }
@@ -282,23 +283,30 @@ fun AddTransactionScreen(
             keyboardActions = KeyboardActions(onDone = { submit() }),
             modifier = Modifier.fillMaxWidth()
         )
-
-        Button(
-            onClick = { submit() },
-            shape = MaterialTheme.shapes.small,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(
-                when (mode) {
-                    TransactionMode.EXPENSE -> "SAVE EXPENSE"
-                    TransactionMode.INCOME -> "SAVE INCOME"
-                    TransactionMode.TRANSFER -> "SAVE TRANSFER"
-                }
-            )
         }
 
-        statusMessage?.let {
-            Text(text = it, style = MaterialTheme.typography.bodyMedium)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(
+                onClick = { submit() },
+                shape = MaterialTheme.shapes.small,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    when (mode) {
+                        TransactionMode.EXPENSE -> "SAVE EXPENSE"
+                        TransactionMode.INCOME -> "SAVE INCOME"
+                        TransactionMode.TRANSFER -> "SAVE TRANSFER"
+                    }
+                )
+            }
+            statusMessage?.let {
+                Text(text = it, style = MaterialTheme.typography.bodyMedium)
+            }
         }
     }
 }
@@ -318,8 +326,8 @@ private fun CategoryOrSourceSection(
     selectedIncomeCategoryId: Long?,
     onExpenseCategorySelected: (Long) -> Unit,
     onIncomeCategorySelected: (Long) -> Unit,
-    onAddCategory: (name: String, kind: String, emoji: String) -> Unit,
-    onRenameCategory: (category: Category, name: String, emoji: String) -> Unit,
+    onAddCategory: (name: String, kind: String, emoji: String, onComplete: () -> Unit) -> Unit,
+    onRenameCategory: (category: Category, name: String, emoji: String, onComplete: () -> Unit) -> Unit,
     onDeleteCategory: (categoryId: Long, onResult: (Boolean) -> Unit) -> Unit
 ) {
     var showPicker by remember { mutableStateOf(false) }
@@ -363,7 +371,9 @@ private fun CategoryOrSourceSection(
             categories = options,
             selectedCategoryId = selectedId ?: -1L,
             onSelect = { id -> if (isExpense) onExpenseCategorySelected(id) else onIncomeCategorySelected(id) },
-            onAddCategory = { name, emoji -> onAddCategory(name, kind, emoji) },
+            onAddCategory = { name, emoji, onComplete ->
+                onAddCategory(name, kind, emoji, onComplete)
+            },
             onRenameCategory = onRenameCategory,
             onDeleteCategory = { category, onResult -> onDeleteCategory(category.id, onResult) },
             onDismiss = { showPicker = false }

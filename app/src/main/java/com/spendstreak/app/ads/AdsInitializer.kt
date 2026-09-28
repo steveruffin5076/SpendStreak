@@ -5,6 +5,7 @@ import android.util.Log
 import com.google.android.gms.ads.MobileAds
 import com.google.android.ump.ConsentRequestParameters
 import com.google.android.ump.UserMessagingPlatform
+import com.spendstreak.app.BuildConfig
 
 const val ADS_LOG_TAG = "SpendStreakAds"
 
@@ -23,25 +24,27 @@ const val ADS_LOG_TAG = "SpendStreakAds"
 fun initializeAds(activity: Activity, onReady: () -> Unit) {
     val consentInformation = UserMessagingPlatform.getConsentInformation(activity)
     val params = ConsentRequestParameters.Builder().build()
-    Log.d(ADS_LOG_TAG, "requestConsentInfoUpdate: starting")
+    if (BuildConfig.DEBUG) Log.d(ADS_LOG_TAG, "requestConsentInfoUpdate: starting")
 
     consentInformation.requestConsentInfoUpdate(
         activity,
         params,
         {
-            Log.d(ADS_LOG_TAG, "requestConsentInfoUpdate: succeeded")
+            if (BuildConfig.DEBUG) Log.d(ADS_LOG_TAG, "requestConsentInfoUpdate: succeeded")
             UserMessagingPlatform.loadAndShowConsentFormIfRequired(activity) { formError ->
                 // A non-null formError here means only the form itself failed to show —
                 // canRequestAds() below is still the authority on whether it's OK to
                 // proceed, matching Google's own quickstart sample.
-                Log.d(
-                    ADS_LOG_TAG,
-                    "loadAndShowConsentFormIfRequired: formError=${formError?.message}, " +
-                        "canRequestAds=${consentInformation.canRequestAds()}"
-                )
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        ADS_LOG_TAG,
+                        "loadAndShowConsentFormIfRequired: formError=${formError?.message}, " +
+                            "canRequestAds=${consentInformation.canRequestAds()}"
+                    )
+                }
                 if (consentInformation.canRequestAds()) {
                     MobileAds.initialize(activity) { status ->
-                        Log.d(ADS_LOG_TAG, "MobileAds.initialize complete: $status")
+                        if (BuildConfig.DEBUG) Log.d(ADS_LOG_TAG, "MobileAds.initialize complete: $status")
                         onReady()
                     }
                 } else {

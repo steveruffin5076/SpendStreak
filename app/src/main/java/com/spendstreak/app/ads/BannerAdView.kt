@@ -16,6 +16,7 @@ import com.google.android.gms.ads.AdRequest
 import com.google.android.gms.ads.AdSize
 import com.google.android.gms.ads.AdView
 import com.google.android.gms.ads.LoadAdError
+import com.spendstreak.app.BuildConfig
 
 private const val BANNER_AD_UNIT_ID = "ca-app-pub-6165653121014687/2402284086"
 
@@ -45,7 +46,9 @@ fun BannerAdView(modifier: Modifier = Modifier) {
                     adUnitId = BANNER_AD_UNIT_ID
                     adListener = object : AdListener() {
                         override fun onAdLoaded() {
-                            Log.d(ADS_LOG_TAG, "onAdLoaded — banner should now be visible")
+                            if (BuildConfig.DEBUG) {
+                                Log.d(ADS_LOG_TAG, "onAdLoaded — banner should now be visible")
+                            }
                         }
 
                         override fun onAdFailedToLoad(error: LoadAdError) {
@@ -56,7 +59,7 @@ fun BannerAdView(modifier: Modifier = Modifier) {
                 }
             }
         )
-    } else {
+    } else if (BuildConfig.DEBUG) {
         Log.d(ADS_LOG_TAG, "adsReady=false — AdView not yet created")
     }
 }

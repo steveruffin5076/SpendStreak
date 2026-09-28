@@ -6,10 +6,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.FilterChip
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -20,6 +23,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -51,6 +55,7 @@ import java.util.Locale
 
 private val DATE_FORMATTER = DateTimeFormatter.ofPattern("MMM d")
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun HistoryScreen(
     entries: List<HistoryEntry>,
@@ -62,8 +67,8 @@ fun HistoryScreen(
     onDeleteIncome: (Long, onResult: (Boolean) -> Unit) -> Unit,
     onUpdateTransfer: (Transfer) -> Unit,
     onDeleteTransfer: (Long, onResult: (Boolean) -> Unit) -> Unit,
-    onAddCategory: (name: String, kind: String, emoji: String) -> Unit,
-    onRenameCategory: (category: Category, name: String, emoji: String) -> Unit,
+    onAddCategory: (name: String, kind: String, emoji: String, onComplete: () -> Unit) -> Unit,
+    onRenameCategory: (category: Category, name: String, emoji: String, onComplete: () -> Unit) -> Unit,
     onDeleteCategory: (categoryId: Long, onResult: (Boolean) -> Unit) -> Unit,
     // Also reused (via AccountsScreen -> MainActivity) as a single account's activity
     // view — same list/edit UI, just pre-filtered, rather than a second near-duplicate
@@ -81,14 +86,23 @@ fun HistoryScreen(
     var startDateMillis by remember { mutableStateOf<Long?>(null) }
     var endDateMillis by remember { mutableStateOf<Long?>(null) }
     var searchQuery by remember { mutableStateOf("") }
-    val displayedEntries = remember(entries, filterAccountId, startDateMillis, endDateMillis, searchQuery) {
+    var selectedAccountFilter by remember { mutableStateOf<Long?>(null) }
+    val effectiveAccountFilter = filterAccountId ?: selectedAccountFilter
+    val displayedEntries = remember(
+        entries,
+        effectiveAccountFilter,
+        startDateMillis,
+        endDateMillis,
+        searchQuery
+    ) {
         val (rangeStart, rangeEnd) = dateRangeBounds(startDateMillis, endDateMillis)
         entries.filter { entry ->
-            val matchesAccount = filterAccountId == null || when (entry) {
-                is HistoryEntry.ExpenseEntry -> entry.expense.accountId == filterAccountId
-                is HistoryEntry.IncomeEntry -> entry.income.accountId == filterAccountId
+            val matchesAccount = effectiveAccountFilter == null || when (entry) {
+                is HistoryEntry.ExpenseEntry -> entry.expense.accountId == effectiveAccountFilter
+                is HistoryEntry.IncomeEntry -> entry.income.accountId == effectiveAccountFilter
                 is HistoryEntry.TransferEntry ->
-                    entry.transfer.fromAccountId == filterAccountId || entry.transfer.toAccountId == filterAccountId
+                    entry.transfer.fromAccountId == effectiveAccountFilter ||
+                        entry.transfer.toAccountId == effectiveAccountFilter
             }
             val timestamp = entryTimestamp(entry)
             matchesAccount &&
@@ -127,15 +141,12 @@ fun HistoryScreen(
             ) {
                 Text(text = "FILTER BY DATE", style = MaterialTheme.typography.labelLarge)
                 if (startDateMillis != null || endDateMillis != null) {
-                    Text(
-                        text = "CLEAR",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.clickable {
-                            startDateMillis = null
-                            endDateMillis = null
-                        }
-                    )
+                    TextButton(onClick = {
+                        startDateMillis = null
+                        endDateMillis = null
+                    }) {
+                        Text("CLEAR")
+                    }
                 }
             }
             DateRangeSection(
@@ -146,11 +157,43 @@ fun HistoryScreen(
             )
         }
 
+        if (filterAccountId == null && accounts.isNotEmpty()) {
+            Column(modifier = Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(text = "FILTER BY ACCOUNT", style = MaterialTheme.typography.labelLarge)
+                    if (selectedAccountFilter != null) {
+                        TextButton(onClick = { selectedAccountFilter = null }) {
+                            Text("CLEAR")
+                        }
+                    }
+                }
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    accounts.forEach { account ->
+                        FilterChip(
+                            selected = selectedAccountFilter == account.id,
+                            onClick = {
+                                selectedAccountFilter = if (selectedAccountFilter == account.id) null else account.id
+                            },
+                            label = { Text(account.name.uppercase()) }
+                        )
+                    }
+                }
+            }
+        }
+
         if (displayedEntries.isEmpty()) {
             Text(
                 text = when {
                     searchQuery.isNotBlank() -> "No transactions match \"$searchQuery\"."
                     startDateMillis != null || endDateMillis != null -> "No transactions in this date range."
+                    effectiveAccountFilter != null -> "No transactions for this account yet."
                     filterAccountId == null -> "No transactions logged yet. Add one from the Add tab to get started."
                     else -> "No transactions for this account yet."
                 },
@@ -425,5 +468,5 @@ private fun categoryColor(categoryId: Long): Color {
         MaterialTheme.colorScheme.error,
         RetroBlue
     )
-    return palette[(categoryId % palette.size).toInt()]
+    return palette[Math.floorMod(categoryId, palette.size.toLong()).toInt()]
 }

@@ -39,6 +39,7 @@ import com.spendstreak.app.data.CategoryKind
 import com.spendstreak.app.data.Expense
 import com.spendstreak.app.data.Income
 import com.spendstreak.app.data.Transfer
+import com.spendstreak.app.util.FormValidation
 import com.spendstreak.app.util.currentCurrencySymbol
 import java.util.Locale
 
@@ -54,8 +55,6 @@ sealed interface EditableTransaction {
     data class TransferEdit(val transfer: Transfer) : EditableTransaction
 }
 
-private val AMOUNT_PATTERN = Regex("^\\d{0,9}(\\.\\d{0,2})?$")
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditTransactionSheet(
@@ -65,8 +64,8 @@ fun EditTransactionSheet(
     onSaveExpense: (Expense) -> Unit,
     onSaveIncome: (Income) -> Unit,
     onSaveTransfer: (Transfer) -> Unit,
-    onAddCategory: (name: String, kind: String, emoji: String) -> Unit,
-    onRenameCategory: (category: Category, name: String, emoji: String) -> Unit,
+    onAddCategory: (name: String, kind: String, emoji: String, onComplete: () -> Unit) -> Unit,
+    onRenameCategory: (category: Category, name: String, emoji: String, onComplete: () -> Unit) -> Unit,
     onDeleteCategory: (categoryId: Long, onResult: (Boolean) -> Unit) -> Unit,
     onDelete: (onResult: (Boolean) -> Unit) -> Unit,
     onDismiss: () -> Unit
@@ -125,11 +124,12 @@ fun EditTransactionSheet(
     val context = LocalContext.current
 
     fun save() {
-        val parsedAmount = amount.toDoubleOrNull()
-        if (parsedAmount == null || parsedAmount <= 0) {
-            statusMessage = "Enter a valid amount."
+        val amountError = FormValidation.validatePositiveAmount(amount)
+        if (amountError != null) {
+            statusMessage = amountError
             return
         }
+        val parsedAmount = amount.toDoubleOrNull()!!
         when (entry) {
             is EditableTransaction.ExpenseEdit -> {
                 val categoryId = selectedCategoryId
@@ -170,19 +170,16 @@ fun EditTransactionSheet(
             is EditableTransaction.TransferEdit -> {
                 val fromId = selectedFromAccountId
                 val toId = selectedToAccountId
-                if (fromId == null || toId == null) {
-                    statusMessage = "Choose both accounts."
-                    return
-                }
-                if (fromId == toId) {
-                    statusMessage = "Choose two different accounts."
+                val transferError = FormValidation.validateTransferAccounts(fromId, toId)
+                if (transferError != null) {
+                    statusMessage = transferError
                     return
                 }
                 onSaveTransfer(
                     entry.transfer.copy(
                         amount = parsedAmount,
-                        fromAccountId = fromId,
-                        toAccountId = toId,
+                        fromAccountId = fromId!!,
+                        toAccountId = toId!!,
                         note = note,
                         timestampMillis = selectedDateMillis
                     )
@@ -197,14 +194,8 @@ fun EditTransactionSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState()
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .imePadding()
-                .verticalScroll(rememberScrollState())
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
+        SheetFormLayout(
+            content = {
             Text(
                 text = when (entry) {
                     is EditableTransaction.ExpenseEdit -> "EDIT EXPENSE"
@@ -216,7 +207,7 @@ fun EditTransactionSheet(
 
             OutlinedTextField(
                 value = amount,
-                onValueChange = { new -> if (AMOUNT_PATTERN.matches(new)) amount = new },
+                onValueChange = { new -> if (FormValidation.AMOUNT_INPUT_PATTERN.matches(new)) amount = new },
                 label = { Text("AMOUNT (${currentCurrencySymbol()})") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 modifier = Modifier.fillMaxWidth()
@@ -262,7 +253,9 @@ fun EditTransactionSheet(
                             categories = options,
                             selectedCategoryId = selectedCategoryId ?: -1L,
                             onSelect = { selectedCategoryId = it },
-                            onAddCategory = { name, emoji -> onAddCategory(name, kind, emoji) },
+                            onAddCategory = { name, emoji, onComplete ->
+                                onAddCategory(name, kind, emoji, onComplete)
+                            },
                             onRenameCategory = onRenameCategory,
                             onDeleteCategory = { category, onResult -> onDeleteCategory(category.id, onResult) },
                             onDismiss = { showCategoryPicker = false }
@@ -395,18 +388,20 @@ fun EditTransactionSheet(
             statusMessage?.let {
                 Text(text = it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             }
-
-            Button(onClick = { save() }, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth()) {
-                Text("SAVE")
+            },
+            actions = {
+                Button(onClick = { save() }, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth()) {
+                    Text("SAVE")
+                }
+                OutlinedButton(
+                    onClick = { showDeleteConfirm = true },
+                    shape = MaterialTheme.shapes.small,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("DELETE", color = MaterialTheme.colorScheme.error)
+                }
             }
-            OutlinedButton(
-                onClick = { showDeleteConfirm = true },
-                shape = MaterialTheme.shapes.small,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("DELETE", color = MaterialTheme.colorScheme.error)
-            }
-        }
+        )
     }
 
     if (showDeleteConfirm) {

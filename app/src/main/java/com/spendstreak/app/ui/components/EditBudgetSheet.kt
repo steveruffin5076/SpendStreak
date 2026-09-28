@@ -29,10 +29,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.spendstreak.app.data.Budget
 import com.spendstreak.app.data.BudgetPeriodType
+import com.spendstreak.app.util.FormValidation
 import com.spendstreak.app.util.currentCurrencySymbol
 import java.util.Locale
-
-private val AMOUNT_PATTERN = Regex("^\\d{0,9}(\\.\\d{0,2})?$")
 
 // Edit/delete for a budget history row — a plain in-place edit, same as the active
 // budget's own "EDIT BUDGET" path in BudgetScreen, just reachable from the history list
@@ -56,27 +55,26 @@ fun EditBudgetSheet(
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
     fun save() {
-        val parsedAmount = amount.toDoubleOrNull()
         val trimmedName = name.trim()
-        if (trimmedName.isBlank()) {
-            statusMessage = "Enter a name for this budget."
+        val nameError = FormValidation.validateBudgetName(trimmedName)
+        if (nameError != null) {
+            statusMessage = nameError
             return
         }
-        if (parsedAmount == null || parsedAmount <= 0) {
-            statusMessage = "Enter a valid amount."
+        val amountError = FormValidation.validatePositiveAmount(amount)
+        if (amountError != null) {
+            statusMessage = amountError
             return
         }
+        val parsedAmount = amount.toDoubleOrNull()!!
         if (periodType == BudgetPeriodType.CUSTOM) {
-            val start = startDateMillis
-            val end = endDateMillis
-            if (start == null || end == null) {
-                statusMessage = "Pick a start and end date."
+            val rangeError = FormValidation.validateCustomDateRange(startDateMillis, endDateMillis)
+            if (rangeError != null) {
+                statusMessage = rangeError
                 return
             }
-            if (end < start) {
-                statusMessage = "End date must be on or after the start date."
-                return
-            }
+            val start = startDateMillis!!
+            val end = endDateMillis!!
             onSave(
                 budget.copy(
                     name = trimmedName,
@@ -104,13 +102,8 @@ fun EditBudgetSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState()
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
+        SheetFormLayout(
+            content = {
             Text(text = "EDIT PAST BUDGET", style = MaterialTheme.typography.headlineSmall)
 
             OutlinedTextField(
@@ -122,13 +115,13 @@ fun EditBudgetSheet(
 
             OutlinedTextField(
                 value = amount,
-                onValueChange = { new -> if (AMOUNT_PATTERN.matches(new)) amount = new },
+                onValueChange = { new -> if (FormValidation.AMOUNT_INPUT_PATTERN.matches(new)) amount = new },
                 label = { Text("LIMIT (${currentCurrencySymbol()})") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 modifier = Modifier.fillMaxWidth()
             )
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 FilterChip(
                     selected = periodType == BudgetPeriodType.MONTHLY,
                     onClick = { periodType = BudgetPeriodType.MONTHLY },
@@ -154,17 +147,20 @@ fun EditBudgetSheet(
                 Text(text = it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             }
 
-            Button(onClick = { save() }, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth()) {
-                Text("SAVE")
+            },
+            actions = {
+                Button(onClick = { save() }, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth()) {
+                    Text("SAVE")
+                }
+                OutlinedButton(
+                    onClick = { showDeleteConfirm = true },
+                    shape = MaterialTheme.shapes.small,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("DELETE", color = MaterialTheme.colorScheme.error)
+                }
             }
-            OutlinedButton(
-                onClick = { showDeleteConfirm = true },
-                shape = MaterialTheme.shapes.small,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("DELETE", color = MaterialTheme.colorScheme.error)
-            }
-        }
+        )
     }
 
     if (showDeleteConfirm) {

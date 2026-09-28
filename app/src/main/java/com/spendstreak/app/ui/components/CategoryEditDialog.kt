@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -26,32 +27,66 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.spendstreak.app.data.Category
 
-// A small curated set, not a full emoji keyboard — no new dependency (system emoji font),
-// simple tap-to-pick, same approach already used for the app's built-in category icons.
 private val EMOJI_CHOICES = listOf(
     "🍔", "🚗", "🛍", "🧾", "🎬", "💰", "💼", "🎁", "🏠", "💊",
     "📚", "✈️", "☕", "🎮", "🐾", "🎓", "🛠️", "💡", "📱", "🎵",
     "🏋️", "🍺", "👶", "❓"
 )
 
-// existing == null means "create"; non-null means "rename" (and offers delete).
-// onDelete is null when creating (nothing to delete yet); when non-null it performs the
-// actual delete-blocked-if-in-use call and reports success/failure back via onResult, same
-// shape as AccountsScreen's onDeleteAccount — a failed delete keeps the dialog open with a
-// status message instead of silently doing nothing.
 @Composable
 fun CategoryEditDialog(
     existing: Category?,
-    onSave: (name: String, emoji: String) -> Unit,
+    onSave: (name: String, emoji: String, onComplete: () -> Unit) -> Unit,
     onDelete: ((onResult: (Boolean) -> Unit) -> Unit)?,
     onDismiss: () -> Unit
 ) {
     var name by remember { mutableStateOf(existing?.name ?: "") }
     var selectedEmoji by remember { mutableStateOf(existing?.emoji ?: EMOJI_CHOICES.first()) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var isSaving by remember { mutableStateOf(false) }
+    var isDeleting by remember { mutableStateOf(false) }
+    val isBusy = isSaving || isDeleting
+
+    if (showDeleteConfirm && onDelete != null) {
+        AlertDialog(
+            onDismissRequest = { if (!isDeleting) showDeleteConfirm = false },
+            title = { Text("Delete this category?") },
+            text = { Text("This can't be undone. Categories with transactions can't be deleted.") },
+            confirmButton = {
+                TextButton(
+                    enabled = !isDeleting,
+                    onClick = {
+                        isDeleting = true
+                        onDelete { success ->
+                            isDeleting = false
+                            if (success) {
+                                showDeleteConfirm = false
+                                onDismiss()
+                            } else {
+                                showDeleteConfirm = false
+                                statusMessage = "Can't delete — it has transactions."
+                            }
+                        }
+                    }
+                ) {
+                    if (isDeleting) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    } else {
+                        Text("DELETE", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(enabled = !isDeleting, onClick = { showDeleteConfirm = false }) {
+                    Text("CANCEL")
+                }
+            }
+        )
+    }
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!isBusy) onDismiss() },
         title = { Text(if (existing == null) "ADD CATEGORY" else "EDIT CATEGORY") },
         text = {
             Column {
@@ -59,6 +94,7 @@ fun CategoryEditDialog(
                     value = name,
                     onValueChange = { name = it; statusMessage = null },
                     label = { Text("NAME") },
+                    enabled = !isBusy,
                     modifier = Modifier.fillMaxWidth()
                 )
                 Text(
@@ -67,15 +103,15 @@ fun CategoryEditDialog(
                     modifier = Modifier.padding(top = 12.dp)
                 )
                 FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.padding(top = 6.dp)
                 ) {
                     EMOJI_CHOICES.forEach { emoji ->
                         val selected = emoji == selectedEmoji
                         Box(
                             modifier = Modifier
-                                .size(40.dp)
+                                .size(48.dp)
                                 .clip(MaterialTheme.shapes.small)
                                 .background(
                                     if (selected) {
@@ -84,7 +120,7 @@ fun CategoryEditDialog(
                                         MaterialTheme.colorScheme.surfaceVariant
                                     }
                                 )
-                                .clickable { selectedEmoji = emoji },
+                                .clickable(enabled = !isBusy) { selectedEmoji = emoji },
                             contentAlignment = Alignment.Center
                         ) {
                             Text(text = emoji, style = MaterialTheme.typography.titleMedium)
@@ -102,30 +138,35 @@ fun CategoryEditDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = {
-                if (name.isBlank()) {
-                    statusMessage = "Enter a name."
-                } else {
-                    onSave(name.trim(), selectedEmoji)
+            TextButton(
+                enabled = !isBusy,
+                onClick = {
+                    if (name.isBlank()) {
+                        statusMessage = "Enter a name."
+                    } else {
+                        isSaving = true
+                        onSave(name.trim(), selectedEmoji) {
+                            isSaving = false
+                            onDismiss()
+                        }
+                    }
                 }
-            }) {
-                Text("SAVE")
+            ) {
+                if (isSaving) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                } else {
+                    Text("SAVE")
+                }
             }
         },
         dismissButton = {
             Row {
                 if (onDelete != null) {
-                    TextButton(onClick = {
-                        onDelete { success ->
-                            if (!success) {
-                                statusMessage = "Can't delete — it has transactions."
-                            }
-                        }
-                    }) {
+                    TextButton(enabled = !isBusy, onClick = { showDeleteConfirm = true }) {
                         Text(text = "DELETE", color = MaterialTheme.colorScheme.error)
                     }
                 }
-                TextButton(onClick = onDismiss) {
+                TextButton(enabled = !isBusy, onClick = onDismiss) {
                     Text("CANCEL")
                 }
             }

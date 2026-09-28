@@ -37,11 +37,10 @@ import com.spendstreak.app.data.CategoryKind
 import com.spendstreak.app.data.RecurringInterval
 import com.spendstreak.app.data.RecurringTransaction
 import com.spendstreak.app.data.RecurringTransactionType
+import com.spendstreak.app.util.FormValidation
 import com.spendstreak.app.util.currentCurrencySymbol
 import java.time.LocalDate
 import java.util.Locale
-
-private val AMOUNT_PATTERN = Regex("^\\d{0,9}(\\.\\d{0,2})?$")
 
 // existing == null means "create"; non-null means "edit" (and offers delete). Mirrors the
 // shape of EditTransactionSheet/EditBudgetSheet — a plain bottom sheet, not a full second
@@ -72,49 +71,42 @@ fun RecurringTransactionSheet(
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
     fun save() {
-        val parsedAmount = amount.toDoubleOrNull()
         val categoryId = selectedCategoryId
         val accountId = selectedAccountId
-        when {
-            parsedAmount == null || parsedAmount <= 0 -> statusMessage = "Enter a valid amount."
-            categoryId == null -> statusMessage = "Choose a category."
-            accountId == null -> statusMessage = "Choose an account."
-            else -> {
-                onSave(
+        val validationError = FormValidation.validateRecurringFields(amount, categoryId, accountId)
+        if (validationError != null) {
+            statusMessage = validationError
+            return
+        }
+        val parsedAmount = amount.toDoubleOrNull()!!
+        onSave(
                     RecurringTransaction(
                         id = existing?.id ?: 0,
                         type = type,
                         amount = parsedAmount,
-                        categoryId = categoryId,
-                        accountId = accountId,
+                        categoryId = categoryId!!,
+                        accountId = accountId!!,
                         note = note,
                         intervalType = intervalType,
                         nextDueEpochDay = nextDueEpochDay,
                         active = existing?.active ?: true
                     )
                 )
-                onDismiss()
-            }
-        }
+        onDismiss()
     }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState()
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
+        SheetFormLayout(
+            content = {
             Text(
                 text = if (existing == null) "ADD RECURRING" else "EDIT RECURRING",
                 style = MaterialTheme.typography.headlineSmall
             )
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 FilterChip(
                     selected = type == RecurringTransactionType.EXPENSE,
                     onClick = {
@@ -135,7 +127,7 @@ fun RecurringTransactionSheet(
 
             OutlinedTextField(
                 value = amount,
-                onValueChange = { new -> if (AMOUNT_PATTERN.matches(new)) amount = new },
+                onValueChange = { new -> if (FormValidation.AMOUNT_INPUT_PATTERN.matches(new)) amount = new },
                 label = { Text("AMOUNT (${currentCurrencySymbol()})") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 modifier = Modifier.fillMaxWidth()
@@ -147,7 +139,7 @@ fun RecurringTransactionSheet(
                 text = if (type == RecurringTransactionType.EXPENSE) "CATEGORY" else "SOURCE",
                 style = MaterialTheme.typography.labelLarge
             )
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 categoryOptions.forEach { category ->
                     FilterChip(
                         selected = selectedCategoryId == category.id,
@@ -158,7 +150,7 @@ fun RecurringTransactionSheet(
             }
 
             Text(text = "ACCOUNT", style = MaterialTheme.typography.labelLarge)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 accounts.forEach { account ->
                     FilterChip(
                         selected = selectedAccountId == account.id,
@@ -169,7 +161,7 @@ fun RecurringTransactionSheet(
             }
 
             Text(text = "REPEATS", style = MaterialTheme.typography.labelLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 FilterChip(
                     selected = intervalType == RecurringInterval.WEEKLY,
                     onClick = { intervalType = RecurringInterval.WEEKLY },
@@ -198,19 +190,22 @@ fun RecurringTransactionSheet(
                 Text(text = it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             }
 
-            Button(onClick = { save() }, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth()) {
-                Text("SAVE")
-            }
-            if (onDelete != null) {
-                OutlinedButton(
-                    onClick = { showDeleteConfirm = true },
-                    shape = MaterialTheme.shapes.small,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("DELETE", color = MaterialTheme.colorScheme.error)
+            },
+            actions = {
+                Button(onClick = { save() }, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth()) {
+                    Text("SAVE")
+                }
+                if (onDelete != null) {
+                    OutlinedButton(
+                        onClick = { showDeleteConfirm = true },
+                        shape = MaterialTheme.shapes.small,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("DELETE", color = MaterialTheme.colorScheme.error)
+                    }
                 }
             }
-        }
+        )
     }
 
     if (showDatePicker) {
