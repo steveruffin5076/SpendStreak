@@ -60,12 +60,27 @@ fun budgetPeriodBounds(budget: Budget, zone: ZoneId = ZoneId.systemDefault()): P
         start to end
     }
 
+/** True while the budget's period includes "now" (monthly budgets are always active). */
+fun isBudgetPeriodActive(
+    budget: Budget,
+    nowMillis: Long = System.currentTimeMillis(),
+    zone: ZoneId = ZoneId.systemDefault()
+): Boolean {
+    if (budget.periodType == BudgetPeriodType.MONTHLY) return true
+    if (budget.periodType != BudgetPeriodType.CUSTOM) return true
+    if (budget.startEpochDay == null || budget.endEpochDay == null) return false
+    val (periodStartMillis, periodEndMillis) = budgetPeriodBounds(budget, zone)
+    return nowMillis >= periodStartMillis && nowMillis < periodEndMillis
+}
+
 fun computeBudgetProgress(
     expenses: List<Expense>,
     activeBudget: Budget?,
-    zone: ZoneId = ZoneId.systemDefault()
+    zone: ZoneId = ZoneId.systemDefault(),
+    nowMillis: Long = System.currentTimeMillis()
 ): BudgetProgress? {
     if (activeBudget == null) return null
+    if (!isBudgetPeriodActive(activeBudget, nowMillis, zone)) return null
     val (periodStartMillis, periodEndMillis) = budgetPeriodBounds(activeBudget, zone)
     val spent = expenses
         .filter { it.timestampMillis in periodStartMillis until periodEndMillis && !it.excludedFromBudget }

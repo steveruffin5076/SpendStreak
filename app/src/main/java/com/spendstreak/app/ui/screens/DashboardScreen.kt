@@ -195,15 +195,16 @@ private fun BudgetPanel(budgetProgress: BudgetProgress) {
             )
         }
         RetroProgressBar(
-            progress = (budgetProgress.spent / budgetProgress.limit).toFloat(),
+            progress = (budgetProgress.spent / budgetProgress.limit).toFloat().coerceIn(0f, 1f),
             filledColor = accentColor,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 10.dp)
         )
         if (budgetProgress.isOverBudget) {
+            val overBy = budgetProgress.spent - budgetProgress.limit
             Text(
-                text = "Over budget!",
+                text = "Over by ${formatCurrency(overBy)}",
                 style = MaterialTheme.typography.bodySmall,
                 color = accentColor,
                 modifier = Modifier.padding(top = 4.dp)

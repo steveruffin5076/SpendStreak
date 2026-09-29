@@ -133,7 +133,12 @@ class BudgetMathTest {
         val beforePeriod = expense(amount = 999.0, timestampMillis = 0)
         val afterPeriod = expense(amount = 999.0, timestampMillis = 2 * MILLIS_PER_DAY)
 
-        val progress = computeBudgetProgress(listOf(insideBudget, beforePeriod, afterPeriod), budget, UTC)
+        val progress = computeBudgetProgress(
+            listOf(insideBudget, beforePeriod, afterPeriod),
+            budget,
+            UTC,
+            nowMillis = MILLIS_PER_DAY + 1
+        )
 
         assertEquals(30.0, progress?.spent)
     }
@@ -152,6 +157,37 @@ class BudgetMathTest {
         val progress = computeBudgetProgress(listOf(excluded, counted), budget, UTC)
 
         assertEquals(20.0, progress?.spent)
+    }
+
+    @Test
+    fun `custom budget outside its date range yields null progress`() {
+        val budget = Budget(
+            name = "Trip",
+            amountLimit = 100.0,
+            periodType = BudgetPeriodType.CUSTOM,
+            startEpochDay = 1L,
+            endEpochDay = 1L
+        )
+        val afterPeriod = 2 * MILLIS_PER_DAY + 1
+        val progress = computeBudgetProgress(
+            expenses = listOf(expense(200.0, timestampMillis = MILLIS_PER_DAY + 1)),
+            activeBudget = budget,
+            zone = UTC,
+            nowMillis = afterPeriod
+        )
+        assertNull(progress)
+    }
+
+    @Test
+    fun `custom budget with missing dates yields null progress`() {
+        val budget = Budget(
+            name = "Broken",
+            amountLimit = 100.0,
+            periodType = BudgetPeriodType.CUSTOM,
+            startEpochDay = null,
+            endEpochDay = null
+        )
+        assertNull(computeBudgetProgress(listOf(expense(50.0)), budget, UTC))
     }
 
     @Test

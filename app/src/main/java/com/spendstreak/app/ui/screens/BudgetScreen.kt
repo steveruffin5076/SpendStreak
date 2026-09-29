@@ -175,7 +175,7 @@ fun BudgetScreen(
                     modifier = Modifier.padding(top = 4.dp)
                 )
                 RetroProgressBar(
-                    progress = (budgetProgress.spent / budgetProgress.limit).toFloat(),
+                    progress = (budgetProgress.spent / budgetProgress.limit).toFloat().coerceIn(0f, 1f),
                     filledColor = accentColor,
                     modifier = Modifier
                         .fillMaxWidth()
